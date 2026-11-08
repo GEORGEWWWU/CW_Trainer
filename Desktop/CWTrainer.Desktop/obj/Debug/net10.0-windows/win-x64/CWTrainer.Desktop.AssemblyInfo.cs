@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CWTrainer.Desktop")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+161697ef8e30e57c1e3a33103e87dbf32452d658")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3e373497673b830b7451515a0b034057aa3771ee")]
 [assembly: System.Reflection.AssemblyProductAttribute("CWTrainer.Desktop")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CWTrainer.Desktop")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

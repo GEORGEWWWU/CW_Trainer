@@ -99,31 +99,57 @@ public partial class MainWindow : Window
         [".--.-."] = '@'
     };
 
+
     public MainWindow()
     {
-        InitializeComponent();
+        string stage = "InitializeComponent";
 
-        EventList.ItemsSource = _events;
-
-        OutputCombo.SelectedIndex = 0;
-        ModeCombo.SelectedIndex = 2;
-
-        _heartbeatTimer = new DispatcherTimer
+        try
         {
-            Interval = TimeSpan.FromMilliseconds(1500)
-        };
-        _heartbeatTimer.Tick += (_, _) => SendCommand("PING");
+            InitializeComponent();
 
-        _characterTimer = new DispatcherTimer();
-        _characterTimer.Tick += (_, _) => FinishMorseCharacter();
+            stage = "绑定事件列表";
+            EventList.ItemsSource = _events;
 
-        _wordTimer = new DispatcherTimer();
-        _wordTimer.Tick += (_, _) => FinishMorseWord();
+            stage = "初始化默认选项";
+            OutputCombo.SelectedIndex = 0;
+            ModeCombo.SelectedIndex = 2;
 
-        RefreshPorts();
-        UpdateSliderLabels();
-        SetConnectionUi(false, null);
+            stage = "更新滑块标签";
+            UpdateSliderLabels();
+
+            stage = "初始化连接状态";
+            SetConnectionUi(false, null);
+
+            stage = "初始化心跳定时器";
+            _heartbeatTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(1500)
+            };
+
+            _heartbeatTimer.Tick += (_, _) => SendCommand("PING");
+
+            // 窗口加载后再扫描串口，避免阻塞首次显示。
+            stage = "安排串口扫描";
+            Loaded += (_, _) =>
+            {
+                Dispatcher.BeginInvoke(
+                    DispatcherPriority.Background,
+                    new Action(RefreshPorts));
+            };
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"启动失败位置：{stage}\n\n{ex}",
+                "CW Trainer 启动异常",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+
+            throw;
+        }
     }
+
 
     // ---------- 标题栏 ----------
 
@@ -590,17 +616,34 @@ public partial class MainWindow : Window
         AddLog($"设置已发送：{wpm} WPM / {mode}");
     }
 
+
     private void WpmSlider_ValueChanged(
         object sender, RoutedPropertyChangedEventArgs<double> e)
-        => WpmValueText.Text = $"{(int)WpmSlider.Value} WPM";
+    {
+        if (WpmValueText == null)
+            return;
+
+        WpmValueText.Text = $"{(int)e.NewValue} WPM";
+    }
 
     private void ToneSlider_ValueChanged(
         object sender, RoutedPropertyChangedEventArgs<double> e)
-        => ToneValueText.Text = $"{(int)ToneSlider.Value} Hz";
+    {
+        if (ToneValueText == null)
+            return;
+
+        ToneValueText.Text = $"{(int)e.NewValue} Hz";
+    }
 
     private void VolumeSlider_ValueChanged(
         object sender, RoutedPropertyChangedEventArgs<double> e)
-        => VolumeValueText.Text = $"{(int)VolumeSlider.Value}%";
+    {
+        if (VolumeValueText == null)
+            return;
+
+        VolumeValueText.Text = $"{(int)e.NewValue}%";
+    }
+
 
     private void UpdateSliderLabels()
     {
