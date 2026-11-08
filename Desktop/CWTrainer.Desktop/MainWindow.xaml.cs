@@ -1,7 +1,5 @@
-using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.IO.Ports;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
@@ -39,7 +37,6 @@ public partial class MainWindow : Window
     private readonly StringBuilder _receiveBuffer = new();
 
     private readonly object _writeLock = new();
-    private readonly object _audioLock = new();
 
     // 心跳与解码都放在线程池上，避免 UI 线程一卡顿就被固件判定为“上位机失联”
     private Timer? _heartbeatTimer;
@@ -67,9 +64,8 @@ public partial class MainWindow : Window
 
     private int _decodeUiPending;
 
-    private byte[]? _activeWave;
-    private GCHandle _activeWavePin;
-    private int _audioGeneration;
+    private readonly AudioOutput _audio;
+    private bool _suppressAudioUi;
 
     private bool _allowClose;
     private bool _closing;
@@ -87,6 +83,10 @@ public partial class MainWindow : Window
 
             stage = "初始化下拉框";
             PortCombo.DisplayMemberPath = null;
+
+            stage = "初始化音频输出";
+            _audio = new AudioOutput(AddLog);
+            RefreshAudioDevices();
 
             stage = "更新数值标签";
             UpdateSliderLabels();
@@ -112,6 +112,8 @@ public partial class MainWindow : Window
                 lock (_stateLock)
                     _decoder.SetWpm(_pendingWpm);
             };
+
+            Activated += (_, _) => RefreshAudioDevices();
 
             // 窗口加载后再扫描串口，避免阻塞首次显示。
             stage = "安排串口扫描";
@@ -1062,162 +1064,45 @@ public partial class MainWindow : Window
 
     // ---------- 电脑音频 ----------
 
-    private const uint SndAsync = 0x0001;
-    private const uint SndNoDefault = 0x0002;
-    private const uint SndMemory = 0x0004;
-    private const uint SndLoop = 0x0008;
-
-    [DllImport("winmm.dll", EntryPoint = "PlaySoundW", ExactSpelling = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool NativePlaySound(
-        IntPtr sound, IntPtr module, uint flags);
-
     private void TestToneButton_Click(object sender, RoutedEventArgs e)
         => PlayComputerTone(350);
 
     private void PlayComputerTone(int durationMs)
-    {
-        int volume = _volume;
-        if (volume <= 0) return;
-
-        byte[] wav = CreateToneWave(durationMs, _toneHz, volume);
-        int generation;
-
-        lock (_audioLock)
-        {
-            StopAudioLocked();
-
-            _activeWave = wav;
-            _activeWavePin = GCHandle.Alloc(wav, GCHandleType.Pinned);
-
-            if (!NativePlaySound(
-                _activeWavePin.AddrOfPinnedObject(),
-                IntPtr.Zero,
-                SndAsync | SndMemory | SndNoDefault))
-            {
-                ReleaseAudioLocked(true);
-                AddLog("电脑音频播放失败。");
-                return;
-            }
-
-            generation = ++_audioGeneration;
-        }
-
-        _ = Task.Delay(durationMs + 200).ContinueWith(_ =>
-        {
-            lock (_audioLock)
-            {
-                if (generation == _audioGeneration)
-                    ReleaseAudioLocked(false);
-            }
-        });
-    }
+        => _audio.PlayTone(durationMs, _toneHz, _volume);
 
     private void StartComputerToneLoop()
-    {
-        int volume = _volume;
-        if (volume <= 0) return;
-
-        byte[] wav = CreateToneWave(1000, _toneHz, volume);
-
-        lock (_audioLock)
-        {
-            StopAudioLocked();
-
-            _activeWave = wav;
-            _activeWavePin = GCHandle.Alloc(wav, GCHandleType.Pinned);
-
-            NativePlaySound(
-                _activeWavePin.AddrOfPinnedObject(),
-                IntPtr.Zero,
-                SndAsync | SndMemory | SndLoop | SndNoDefault);
-
-            _audioGeneration++;
-        }
-    }
+        => _audio.StartTone(_toneHz, _volume);
 
     private void StopComputerTone()
+        => _audio.Stop();
+
+    private void RefreshAudioDevices()
     {
-        lock (_audioLock)
-            StopAudioLocked();
-    }
+        int keep = _audio.DeviceIndex;
+        List<AudioDevice> devices = _audio.GetDevices();
 
-    private void StopAudioLocked()
-    {
-        _audioGeneration++;
-        NativePlaySound(IntPtr.Zero, IntPtr.Zero, 0);
-        ReleaseAudioLocked(false);
-    }
+        _suppressAudioUi = true;
 
-    private void ReleaseAudioLocked(bool stopPlayback)
-    {
-        if (stopPlayback)
-            NativePlaySound(IntPtr.Zero, IntPtr.Zero, 0);
-
-        if (_activeWavePin.IsAllocated)
-            _activeWavePin.Free();
-
-        _activeWave = null;
-    }
-
-    private static byte[] CreateToneWave(
-        int durationMs, int frequencyHz, int volumePercent)
-    {
-        const int sampleRate = 44100;
-        const short channels = 1;
-        const short bits = 16;
-
-        int sampleCount = Math.Max(1, sampleRate * durationMs / 1000);
-        int dataBytes = sampleCount * 2;
-
-        byte[] wav = new byte[44 + dataBytes];
-
-        Encoding.ASCII.GetBytes("RIFF").CopyTo(wav, 0);
-        BinaryPrimitives.WriteInt32LittleEndian(
-            wav.AsSpan(4, 4), 36 + dataBytes);
-
-        Encoding.ASCII.GetBytes("WAVE").CopyTo(wav, 8);
-        Encoding.ASCII.GetBytes("fmt ").CopyTo(wav, 12);
-
-        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(16, 4), 16);
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(20, 2), 1);
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(22, 2), channels);
-        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(24, 4), sampleRate);
-        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(28, 4), sampleRate * 2);
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(32, 2), 2);
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(34, 2), bits);
-
-        Encoding.ASCII.GetBytes("data").CopyTo(wav, 36);
-        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(40, 4), dataBytes);
-
-        double amplitude = Math.Clamp(volumePercent, 0, 100) / 100.0 * 0.45;
-        int frequency = Math.Clamp(frequencyHz, 100, 3000);
-        int fade = Math.Min(sampleRate / 250, sampleCount / 2);
-
-        for (int i = 0; i < sampleCount; i++)
+        try
         {
-            double envelope = 1;
+            AudioDeviceCombo.ItemsSource = devices;
 
-            if (fade > 0 && i < fade)
-                envelope = i / (double)fade;
-
-            if (fade > 0 && i >= sampleCount - fade)
-                envelope = Math.Min(envelope,
-                    (sampleCount - 1 - i) / (double)fade);
-
-            double sample = Math.Sin(
-                2 * Math.PI * frequency * i / sampleRate)
-                * amplitude * envelope;
-
-            short pcm = (short)Math.Clamp(
-                (int)(sample * short.MaxValue),
-                short.MinValue, short.MaxValue);
-
-            BinaryPrimitives.WriteInt16LittleEndian(
-                wav.AsSpan(44 + i * 2, 2), pcm);
+            AudioDevice selected = devices.FirstOrDefault(d => d.Index == keep) ?? devices[0];
+            AudioDeviceCombo.SelectedItem = selected;
         }
+        finally
+        {
+            _suppressAudioUi = false;
+        }
+    }
 
-        return wav;
+    private void AudioDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressAudioUi || AudioDeviceCombo.SelectedItem is not AudioDevice device)
+            return;
+
+        _audio.SelectDevice(device.Index);
+        AddLog($"电脑音频输出：{device.Name}");
     }
 
     // ---------- 窗口关闭 ----------
@@ -1255,6 +1140,7 @@ public partial class MainWindow : Window
 
             try
             {
+                _audio.Dispose();
                 Close();
             }
             catch

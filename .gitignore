@@ -1,0 +1,12 @@
+# 发布产物（本地构建，不进版本库）
+dist/
+
+# Visual Studio / .NET
+.vs/
+*.user
+*.suo
+*.userprefs
+
+# 聊天/工具产生的临时文件
+.workbuddy/ui/*.png
+.workbuddy/ui/check-*.png

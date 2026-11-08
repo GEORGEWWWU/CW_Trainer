@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="CW Trainer"
         Icon="Assets/app.ico"
-        Width="1200" Height="760"
-        MinWidth="900" MinHeight="570"
+        Width="1200" Height="800"
+        MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -23,10 +23,10 @@
     -->
     <Border BorderBrush="#E4E4E1" BorderThickness="1">
     <Viewbox Stretch="Uniform" StretchDirection="Both">
-        <Grid Width="1200" Height="760" Background="{StaticResource Surface}">
+        <Grid Width="1200" Height="800" Background="{StaticResource Surface}">
 
             <Grid.RowDefinitions>
-                <RowDefinition Height="64"/>
+                <RowDefinition Height="56"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
@@ -240,7 +240,25 @@
                                 </UniformGrid>
                             </Border>
 
-                            <Grid Margin="0,18,0,0">
+                            <Grid Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="输出设备"
+                                           Style="{StaticResource CardLabel}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,10,0"/>
+
+                                <ComboBox x:Name="AudioDeviceCombo"
+                                          Grid.Column="1"
+                                          Height="38"
+                                          DisplayMemberPath="Name"
+                                          SelectionChanged="AudioDeviceCombo_SelectionChanged"/>
+                            </Grid>
+
+                            <Grid Margin="0,16,0,0">
                                 <TextBlock Text="音调" Style="{StaticResource CardLabel}"/>
                                 <TextBlock x:Name="ToneValueText"
                                            Text="650 Hz"
@@ -256,7 +274,7 @@
                                     Margin="0,2,0,0"
                                     ValueChanged="ToneSlider_ValueChanged"/>
 
-                            <Grid Margin="0,10,0,0">
+                            <Grid Margin="0,8,0,0">
                                 <TextBlock Text="音量" Style="{StaticResource CardLabel}"/>
                                 <TextBlock x:Name="VolumeValueText"
                                            Text="45%"
