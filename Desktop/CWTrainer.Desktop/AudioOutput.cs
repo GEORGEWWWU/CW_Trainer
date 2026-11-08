@@ -25,6 +25,9 @@ public sealed class AudioOutput : IDisposable
     // 多久没有声音就把设备关掉（毫秒）。关了之后「跟随系统」才会重新解析默认设备。
     private const int IdleCloseMs = 4000;
 
+    // MME 的设备名（MAXPNAMELEN）只有 32 个字符，接近上限就当作被截断
+    private const int MaxDeviceNameChars = 24;
+
     private const uint WaveMapper = 0xFFFFFFFF;
     private const uint WaveFormatPcm = 1;
     private const uint WhdrDone = 0x00000001;
@@ -69,8 +72,11 @@ public sealed class AudioOutput : IDisposable
                 if (waveOutGetDevCaps((IntPtr)i, ref caps, (uint)Marshal.SizeOf<WAVEOUTCAPS>()) == 0)
                 {
                     string name = (caps.szPname ?? string.Empty).Trim();
+
                     if (name.Length == 0)
                         name = $"设备 {i + 1}";
+                    else if (name.Length >= MaxDeviceNameChars && !name.EndsWith(')'))
+                        name += "…";    // MME 的名字上限是 32 字符，超出部分只能截断
 
                     list.Add(new AudioDevice((int)i, name));
                 }
@@ -383,10 +389,13 @@ public sealed class AudioOutput : IDisposable
         public uint dwFormats;
         public ushort wChannels;
         public ushort wReserved1;
-        public uint dwSupport;
 
+        // 注意：szPname 在 dwSupport 之前（MMVERSION 之后的宽度共 16 字节），
+        // 顺序写反会让设备名整体左移 4 个字节，读出来缺字。
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
         public string szPname;
+
+        public uint dwSupport;
     }
 
     [DllImport("winmm.dll", EntryPoint = "waveOutOpen")]

@@ -37,9 +37,11 @@
 
 ## 界面
 
-空闲态与连接态：
+**未连接**——选好端口点「连接设备」：
 
-<img src="assets/ui-idle.png" width="720" alt="空闲态">
+<img src="assets/ui-idle.png" width="720" alt="未连接">
+
+**已连接 · 电脑发声**——右侧日志里是真实设备返回的 `ACK,OUTPUT,PC`：
 
 <img src="assets/ui-connected.png" width="720" alt="已连接">
 
