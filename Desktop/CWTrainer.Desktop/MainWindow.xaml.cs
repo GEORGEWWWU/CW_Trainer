@@ -52,6 +52,7 @@ public partial class MainWindow : Window
         _heartbeatTimer.Tick += (_, _) => SendCommand("PING");
     }
 
+
     private void RefreshPorts()
     {
         string? previous = PortCombo.SelectedItem as string;
@@ -59,19 +60,31 @@ public partial class MainWindow : Window
 
         try
         {
-            foreach (string name in SerialPort.GetPortNames().OrderBy(ParseComNumber))
+            foreach (string name in SerialPort.GetPortNames()
+                         .OrderBy(ParseComNumber))
+            {
                 PortCombo.Items.Add(name);
+            }
         }
         catch (Exception ex)
         {
             AddLog($"读取 COM 端口失败：{ex.Message}");
         }
 
-        if (previous is not null && PortCombo.Items.Contains(previous))
+        // 保留之前选择的端口，但不再自动选择第一个。
+        if (previous is not null &&
+            PortCombo.Items.Contains(previous))
+        {
             PortCombo.SelectedItem = previous;
-        else if (PortCombo.Items.Count > 0)
-            PortCombo.SelectedIndex = 0;
+        }
+        else
+        {
+            PortCombo.SelectedIndex = -1;
+        }
+
+        AddLog($"发现 {PortCombo.Items.Count} 个串口，请选择 ESP32-S3 的 OTG 接口。");
     }
+
 
     private static int ParseComNumber(string name)
     {
@@ -106,7 +119,7 @@ public partial class MainWindow : Window
                 WriteTimeout = 500,
                 ReadBufferSize = 4096,
                 WriteBufferSize = 2048,
-                DtrEnable = false,
+                DtrEnable = true,
                 RtsEnable = false,
                 Handshake = System.IO.Ports.Handshake.None
             };
@@ -114,6 +127,8 @@ public partial class MainWindow : Window
             port.DataReceived += Port_DataReceived;
             port.Open();
             _port = port;
+            await Task.Delay(300);
+            port.DiscardInBuffer();
             var handshake = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             _handshakeSource = handshake;
             AddLog($"已打开 {portName}，正在握手…");
@@ -121,13 +136,23 @@ public partial class MainWindow : Window
 
             // The board may take a moment to enumerate after opening the native USB CDC port.
             // Retry HELLO instead of assuming that opening COM means the trainer is ready.
-            for (int attempt = 0; attempt < 8 && !handshake.Task.IsCompleted; attempt++)
+
+            for (int attempt = 1;
+                 attempt <= 12 && !handshake.Task.IsCompleted;
+                 attempt++)
             {
+                AddLog($"发送设备握手 HELLO ({attempt}/12)");
+
                 SendCommand("HELLO,1");
-                await Task.Delay(400);
+
+                await Task.Delay(500);
             }
 
-            Task completed = await Task.WhenAny(handshake.Task, Task.Delay(500));
+            Task completed = await Task.WhenAny(
+                handshake.Task,
+                Task.Delay(1000)
+            );
+
             if (completed != handshake.Task || !handshake.Task.Result)
             {
                 DisconnectDevice("握手超时");
@@ -164,8 +189,13 @@ public partial class MainWindow : Window
         {
             chunk = port.ReadExisting();
         }
-        catch
+        catch (Exception ex)
         {
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                AddLog($"USB 串口接收异常：{ex.Message}");
+            }));
+
             return;
         }
 

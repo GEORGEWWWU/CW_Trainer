@@ -26,12 +26,17 @@
         </Style>
     </Window.Resources>
 
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
+    <ScrollViewer
+    VerticalScrollBarVisibility="Auto"
+    HorizontalScrollBarVisibility="Disabled"
+    CanContentScroll="False">
+
+        <Grid Margin="24">
+            <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -63,11 +68,18 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="设备端口" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="0,0,14,0" />
+                <TextBlock Text="USB OTG 端口" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="0,0,14,0" />
                 <ComboBox x:Name="PortCombo" Grid.Column="1" />
                 <Button x:Name="RefreshButton" Grid.Column="2" Content="刷新端口" Margin="10,0,0,0" Click="RefreshButton_Click" Background="#26364F" BorderBrush="#354A69" />
                 <Button x:Name="ConnectButton" Grid.Column="3" Content="连接练习器" Margin="10,0,0,0" Click="ConnectButton_Click" />
-                <TextBlock x:Name="DeviceInfoText" Grid.Column="4" Text="连接设备后可切换电脑发声、设置速度和键控模式。" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="18,0,0,0" TextWrapping="Wrap" />
+                <TextBlock x:Name="DeviceInfoText"
+           Grid.Column="4"
+           Text="请选择开发板 OTG 接口对应的 COM 端口，TTL 口不用于本软件通信。"
+           Foreground="{StaticResource TextMuted}"
+           VerticalAlignment="Center"
+           HorizontalAlignment="Right"
+           Margin="18,0,0,0"
+           TextWrapping="Wrap" />
             </Grid>
         </Border>
 
@@ -170,5 +182,6 @@
         </Grid>
 
         <TextBlock Grid.Row="3" Text="CW Trainer V2 · Keying and timing stay on ESP32-S3 · PC audio is optional" Foreground="#64748B" FontSize="10" HorizontalAlignment="Center" Margin="0,16,0,0" />
-    </Grid>
+        </Grid>
+    </ScrollViewer>
 </Window>
