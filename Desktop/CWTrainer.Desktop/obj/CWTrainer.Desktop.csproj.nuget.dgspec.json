@@ -8,7 +8,7 @@
       "version": "2.1.0",
       "restore": {
         "projectUniqueName": "I:\\Arduino\\CW_Trainer\\Desktop\\CWTrainer.Desktop\\CWTrainer.Desktop.csproj",
-        "projectName": "CWTrainer.Desktop",
+        "projectName": "CWT",
         "projectPath": "I:\\Arduino\\CW_Trainer\\Desktop\\CWTrainer.Desktop\\CWTrainer.Desktop.csproj",
         "packagesPath": "C:\\Users\\Administrator\\.nuget\\packages\\",
         "outputPath": "I:\\Arduino\\CW_Trainer\\Desktop\\CWTrainer.Desktop\\obj\\",

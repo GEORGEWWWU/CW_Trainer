@@ -119,17 +119,27 @@ esp32:esp32:esp32s3:UploadSpeed=115200,USBMode=default,CDCOnBoot=cdc,UploadMode=
 
 需要 **.NET 10 Desktop Runtime**（框架依赖，体积小）。
 
-自己构建（Release 出版本就是单文件，约 360 KB）：
+直接下载：到 [Releases](https://github.com/GEORGEWWWU/CW_Trainer/releases) 取最新的 `CWT.exe`，双击即可，不用安装。
+
+自己构建（Release 出版本就是单文件，约 380 KB）：
 
 ```powershell
 cd Desktop/CWTrainer.Desktop
-dotnet build                                                  # 调试
-dotnet publish -c Release -r win-x64 --self-contained false    # 单文件
+dotnet build                                                   # 调试
+dotnet publish -c Release -r win-x64 --self-contained false     # 单文件
 ```
 
-产物在 `bin/Release/net10.0-windows/win-x64/publish/CWTrainer.Desktop.exe`，本机也会复制一份到 `dist/`（该目录不进版本库）。
+产物名固定为 **`CWT.exe`**，落在 `bin/Release/net10.0-windows/win-x64/publish/CWT.exe`；
+本地开发时也会同步一份到仓库根目录的 `dist/CWT.exe`（该目录不进版本库），随时可测。
 
 目标机器需要 .NET 10 Desktop Runtime；如果希望对方什么都不用装，把 `--self-contained` 改成 `true`，代价是 exe 会变成 60 MB 左右。
+
+### 自动构建
+
+`.github/workflows/build.yml` 已经配好：
+
+- 推送到 `main`：自动编译，产物作为 Actions artifact（`CWT-win-x64`）可下载
+- 打 `v*` 标签（如 `v2.1.0`）：自动编译并把 `CWT.exe` 挂到 GitHub Release 上
 
 ### 3. 用起来
 

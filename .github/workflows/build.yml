@@ -1,0 +1,49 @@
+name: Build CWT
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish (single file, framework-dependent)
+        run: >
+          dotnet publish Desktop/CWTrainer.Desktop/CWTrainer.Desktop.csproj
+          -c Release
+          -r win-x64
+          --self-contained false
+          -o out
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CWT-win-x64
+          path: out/CWT.exe
+          if-no-files-found: error
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CWT ${{ github.ref_name }}
+          files: out/CWT.exe
+          body: |
+            Windows 单文件版，框架依赖，需要 .NET 10 Desktop Runtime。
+
+            下载 `CWT.exe` 直接双击运行，无需安装。
+          fail_on_unmatched_files: true

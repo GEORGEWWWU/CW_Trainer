@@ -1,1 +1,1 @@
-I:\Arduino\CW_Trainer\dist\CWTrainer.Desktop.exe
+I:\Arduino\CW_Trainer\dist\CWT.exe
