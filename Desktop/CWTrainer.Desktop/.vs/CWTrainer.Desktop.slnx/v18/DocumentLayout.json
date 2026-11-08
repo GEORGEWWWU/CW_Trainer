@@ -1,0 +1,40 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "I:\\Arduino\\CW_Trainer\\Desktop\\CWTrainer.Desktop\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{C877A50B-5D33-3BBE-31D5-907A9E6EB749}|CWTrainer.Desktop.csproj|i:\\arduino\\cw_trainer\\desktop\\cwtrainer.desktop\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{C877A50B-5D33-3BBE-31D5-907A9E6EB749}|CWTrainer.Desktop.csproj|solutionrelative:mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 328,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "MainWindow.xaml",
+              "DocumentMoniker": "I:\\Arduino\\CW_Trainer\\Desktop\\CWTrainer.Desktop\\MainWindow.xaml",
+              "RelativeDocumentMoniker": "MainWindow.xaml",
+              "ToolTip": "I:\\Arduino\\CW_Trainer\\Desktop\\CWTrainer.Desktop\\MainWindow.xaml",
+              "RelativeToolTip": "MainWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-11-08T14:46:57.522Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

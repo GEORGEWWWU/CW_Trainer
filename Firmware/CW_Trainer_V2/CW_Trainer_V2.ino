@@ -1,37 +1,43 @@
 /*
-  CW TRAINER V2 - ESP32-S3-N16R8
-  Arduino-ESP32 Core: 2.0.17-cn
+  CW TRAINER V2 - ESP32-S3-N16R8          CW训练器 V2 - ESP32-S3-N16R8
+  Arduino-ESP32 Core: 2.0.17-cn          Arduino-ESP32 核心库版本：2.0.17-cn
 
-  Wiring (the final left/right convention):
-    GPIO5 = LEFT paddle = DIT (dot)
-    GPIO4 = RIGHT paddle = DAH (dash)
-    GPIO6 = active-HIGH buzzer input
-    GND   = paddle common
+  Wiring (the final left/right convention):    接线定义（最终左右键约定）：
+    GPIO5 = LEFT paddle = DIT (dot)            GPIO5 = 左键 = 点（DIT）
+    GPIO4 = RIGHT paddle = DAH (dash)          GPIO4 = 右键 = 划（DAH）
+    GPIO6 = active-HIGH buzzer input           GPIO6 = 高电平有效蜂鸣器控制脚
+    GND   = paddle common                      GND   = 电键公共地
 
   USB protocol: newline-delimited ASCII commands/events at 115200.
-  PC commands:
-    HELLO,1
-    PING
-    GET
-    SET,OUTPUT,BUZZER|PC|BOTH
-    SET,WPM,5..60
-    SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B
+  USB通信协议：波特率115200，换行分隔ASCII指令与事件
+  PC commands:                                 上位机指令：
+    HELLO,1                                    HELLO,1
+    PING                                       PING
+    GET                                        GET
+    SET,OUTPUT,BUZZER|PC|BOTH                  SET,OUTPUT,BUZZER|PC|BOTH
+    SET,WPM,5..60                              SET,WPM,5..60
+    SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B        SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B
 
-  Device events:
-    READY,1,CWTRAINER,2.0.0
-    STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER
-    KEY,DIT,1 / KEY,DIT,0
-    KEY,DAH,1 / KEY,DAH,0
+  Device events:                               设备上报事件：
+    READY,1,CWTRAINER,2.0.0                    READY,1,CWTRAINER,2.0.0
+    STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER  STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER
+    KEY,DIT,1 / KEY,DIT,0                      KEY,DIT,1 / KEY,DIT,0
+    KEY,DAH,1 / KEY,DAH,0                      KEY,DAH,1 / KEY,DAH,0
     ELEMENT,DIT,80000     (duration in microseconds)
+    ELEMENT,DIT,80000     （时长单位：微秒）
     TONE,ON / TONE,OFF    (straight-key mode)
-    ACK,... / PONG
+    TONE,ON / TONE,OFF    （直键模式）
+    ACK,... / PONG                             ACK,... / PONG
 
-  Important:
+  Important:                                   重要说明：
   - The MCU remains responsible for keyer timing. The PC never schedules
     paddle timing; it only renders ELEMENT events as computer audio.
+  - 电键时序由单片机主控负责。上位机不参与电键时序生成，仅根据ELEMENT事件播放电脑端音频。
   - OUTPUT defaults to BUZZER at boot and falls back to BUZZER if host
     heartbeat is lost for 6 seconds.
+  - 上电默认输出为蜂鸣器；若上位机心跳丢失超过6秒，自动切回蜂鸣器输出。
 */
+
 
 #include <Arduino.h>
 #include <stdlib.h>
@@ -388,14 +394,34 @@ static void handleCommand(char* line) {
   sendLine("ERROR,UNKNOWN_SETTING");
 }
 
+
 static void readSerialCommands() {
   while (Serial.available() > 0) {
-    const char c = (char)Serial.read();
+
+    const int raw = Serial.read();
+    if (raw < 0) break;
+
+    const char c = (char)raw;
+
+    // DEBUG 1: Report every received byte in HEX
+    Serial.print("DBG_RX,");
+    if (raw < 16) Serial.print("0");
+    Serial.println(raw, HEX);
+
     if (c == '\r') continue;
 
     if (c == '\n') {
+
       commandBuffer[commandLength] = '\0';
-      if (commandLength > 0) handleCommand(commandBuffer);
+
+      // DEBUG 2: Report the complete received command
+      Serial.print("DBG_LINE,");
+      Serial.println(commandBuffer);
+
+      if (commandLength > 0) {
+        handleCommand(commandBuffer);
+      }
+
       commandLength = 0;
       continue;
     }
@@ -404,10 +430,11 @@ static void readSerialCommands() {
       commandBuffer[commandLength++] = c;
     } else {
       commandLength = 0;
-      sendLine("ERROR,LINE_TOO_LONG");
+      Serial.println("DBG_ERROR,LINE_TOO_LONG");
     }
   }
 }
+
 
 static void checkHostTimeout() {
   if (hostConnected && (uint32_t)(millis() - lastHostPingMs) > HOST_TIMEOUT_MS) {
