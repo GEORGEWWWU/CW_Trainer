@@ -9,12 +9,20 @@ public partial class App : Application
 {
     private static bool _isDark;
 
+    /// <summary>用户偏好，启动时读取，改动后立即写盘。</summary>
+    public static AppSettings Settings { get; private set; } = new();
+
+    /// <summary>当前生效的是不是深色。</summary>
+    public static bool IsDarkTheme => _isDark;
+
     protected override void OnStartup(StartupEventArgs e)
     {
-        base.OnStartup(e);
-
-        _isDark = IsSystemDarkTheme();
+        // 主题要在主窗口创建之前定下来，避免启动瞬间闪一下
+        Settings = AppSettings.Load();
+        _isDark = ResolveDark(Settings.Theme);
         ApplyTheme(_isDark);
+
+        base.OnStartup(e);
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
@@ -30,9 +38,25 @@ public partial class App : Application
         };
     }
 
-    /// <summary>重新读一次系统主题，变了就换色板。窗口收到 WM_SETTINGCHANGE 时也会调这里。</summary>
+    /// <summary>用户在设置里切换明暗模式。</summary>
+    public static void SetThemeMode(AppTheme mode)
+    {
+        Settings.Theme = mode;
+        Settings.Save();
+
+        _isDark = ResolveDark(mode);
+        ApplyTheme(_isDark);
+    }
+
+    /// <summary>
+    /// 系统主题变了。只有「跟随系统」时才需要响应；
+    /// 用户手动指定了明或暗，就不再被系统覆盖。
+    /// </summary>
     public static void RefreshTheme()
     {
+        if (Settings.Theme != AppTheme.System)
+            return;
+
         bool dark = IsSystemDarkTheme();
 
         if (dark == _isDark)
@@ -45,6 +69,13 @@ public partial class App : Application
 
         Current.Dispatcher.BeginInvoke(new Action(() => ApplyTheme(dark)));
     }
+
+    private static bool ResolveDark(AppTheme mode) => mode switch
+    {
+        AppTheme.Light => false,
+        AppTheme.Dark => true,
+        _ => IsSystemDarkTheme()
+    };
 
     /// <summary>
     /// 整页的颜色都通过 DynamicResource 引用主题字典里的键，

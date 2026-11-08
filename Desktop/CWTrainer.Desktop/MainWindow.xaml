@@ -7,10 +7,10 @@
         Width="1200" Height="800"
         MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None"
+        WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
-        Background="{StaticResource Surface}"
-        Foreground="{StaticResource Ink}"
+        Background="{DynamicResource Surface}"
+        Foreground="{DynamicResource Ink}"
         FontFamily="{StaticResource UiFont}"
         FontSize="13"
         UseLayoutRounding="True"
@@ -38,7 +38,7 @@
     -->
     <Border BorderBrush="{DynamicResource Hairline}" BorderThickness="1">
     <Viewbox Stretch="Uniform" StretchDirection="Both">
-        <Grid Width="1200" Height="800" Background="{StaticResource Surface}">
+        <Grid Width="1200" Height="800" Background="{DynamicResource Surface}">
 
             <Grid.RowDefinitions>
                 <RowDefinition Height="56"/>
@@ -55,16 +55,16 @@
                     <!-- 与 .ico 一致的点划标 -->
                     <Border Width="26" Height="26"
                             CornerRadius="7.5"
-                            Background="{StaticResource Ink}">
+                            Background="{DynamicResource Ink}">
                         <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center">
                             <Ellipse Width="4.5" Height="4.5"
-                                     Fill="{StaticResource Accent}"
+                                     Fill="{DynamicResource Accent}"
                                      Margin="0,0,3.5,0"/>
                             <Border Width="9" Height="4.5"
                                     CornerRadius="2.25"
-                                    Background="{StaticResource Accent}"/>
+                                    Background="{DynamicResource Accent}"/>
                         </StackPanel>
                     </Border>
 
@@ -75,12 +75,12 @@
                                VerticalAlignment="Center"/>
 
                     <Border Width="1" Height="14"
-                            Background="{StaticResource Hairline}"
+                            Background="{DynamicResource Hairline}"
                             Margin="14,0"/>
 
                     <TextBlock Text="摩斯电码练习器"
                                FontSize="11.5"
-                               Foreground="{StaticResource Ink3}"
+                               Foreground="{DynamicResource Ink3}"
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
@@ -88,21 +88,46 @@
                             HorizontalAlignment="Right"
                             VerticalAlignment="Center">
 
+                    <!-- 设置 -->
+                    <Button x:Name="SettingsButton"
+                            Style="{StaticResource WindowButton}"
+                            Click="SettingsButton_Click"
+                            Margin="0,0,6,0"
+                            ToolTip="设置"
+                            AutomationProperties.Name="设置">
+                        <Viewbox Width="19" Height="19">
+                            <Canvas Width="24" Height="24">
+                                <Path Style="{StaticResource IconStroke}"
+                                      Data="M4,8 H20 M4,16 H20"/>
+                                <Ellipse Canvas.Left="12.2" Canvas.Top="5.2"
+                                         Width="5.6" Height="5.6"
+                                         Stroke="{DynamicResource Ink2}"
+                                         StrokeThickness="1.6"
+                                         Fill="Transparent"/>
+                                <Ellipse Canvas.Left="6.2" Canvas.Top="13.2"
+                                         Width="5.6" Height="5.6"
+                                         Stroke="{DynamicResource Ink2}"
+                                         StrokeThickness="1.6"
+                                         Fill="Transparent"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+
                     <!-- 连接状态 -->
-                    <Border Background="{StaticResource Paper}"
+                    <Border Background="{DynamicResource Paper}"
                             CornerRadius="16"
                             Padding="12,7"
                             Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Ellipse x:Name="ConnectionDot"
                                      Width="6" Height="6"
-                                     Fill="{StaticResource Ink3}"
+                                     Fill="{DynamicResource Ink3}"
                                      Margin="0,0,7,0"/>
                             <TextBlock x:Name="ConnectionText"
                                        Text="未连接"
                                        FontSize="11.5"
                                        FontWeight="Medium"
-                                       Foreground="{StaticResource Ink2}"/>
+                                       Foreground="{DynamicResource Ink2}"/>
                         </StackPanel>
                     </Border>
 
@@ -155,7 +180,7 @@
 
                     <!-- 设备 -->
                     <Border Grid.Row="0"
-                            Background="{StaticResource Paper}"
+                            Background="{DynamicResource Paper}"
                             CornerRadius="20"
                             Padding="20">
                         <StackPanel>
@@ -174,7 +199,7 @@
                                                Margin="15,0,0,0"
                                                VerticalAlignment="Center"
                                                FontSize="13"
-                                               Foreground="{StaticResource Ink3}"
+                                               Foreground="{DynamicResource Ink3}"
                                                IsHitTestVisible="False">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
@@ -217,7 +242,7 @@
 
                     <!-- 声音输出 -->
                     <Border Grid.Row="2"
-                            Background="{StaticResource Paper}"
+                            Background="{DynamicResource Paper}"
                             CornerRadius="20"
                             Padding="20">
                         <StackPanel>
@@ -309,7 +334,7 @@
 
                     <!-- 键控 -->
                     <Border Grid.Row="4"
-                            Background="{StaticResource Paper}"
+                            Background="{DynamicResource Paper}"
                             CornerRadius="20"
                             Padding="20">
                         <Grid>
@@ -389,7 +414,7 @@
 
                     <!-- 实时抄收 -->
                     <Border Grid.Row="0"
-                            Background="{StaticResource Paper}"
+                            Background="{DynamicResource Paper}"
                             CornerRadius="20"
                             Padding="24,20,24,22">
                         <Grid>
@@ -457,15 +482,15 @@
                                                 HorizontalAlignment="Center"
                                                 Margin="0,0,0,14">
                                         <Ellipse Width="8" Height="8"
-                                                 Fill="{StaticResource Hairline}"
+                                                 Fill="{DynamicResource Hairline}"
                                                  Margin="0,0,7,0"/>
                                         <Border Width="18" Height="8"
                                                 CornerRadius="4"
-                                                Background="{StaticResource Hairline}"/>
+                                                Background="{DynamicResource Hairline}"/>
                                     </StackPanel>
                                     <TextBlock Text="等待接收摩斯码"
                                                FontSize="15"
-                                               Foreground="{StaticResource Ink3}"
+                                               Foreground="{DynamicResource Ink3}"
                                                HorizontalAlignment="Center"/>
                                 </StackPanel>
 
@@ -474,7 +499,7 @@
                                            FontSize="42"
                                            FontWeight="SemiBold"
                                            LineHeight="52"
-                                           Foreground="{StaticResource Ink}"
+                                           Foreground="{DynamicResource Ink}"
                                            TextWrapping="Wrap"
                                            VerticalAlignment="Center"/>
                             </Grid>
@@ -482,7 +507,7 @@
                             <!-- 当前点划 + 电键状态 -->
                             <StackPanel Grid.Row="2">
                                 <Border Height="1"
-                                        Background="{StaticResource Hairline}"
+                                        Background="{DynamicResource Hairline}"
                                         Margin="0,0,0,14"/>
 
                                 <Grid Height="30">
@@ -496,7 +521,7 @@
                                                FontFamily="{StaticResource MonoFont}"
                                                FontSize="24"
                                                FontWeight="SemiBold"
-                                               Foreground="{StaticResource Ink3}"
+                                               Foreground="{DynamicResource Ink3}"
                                                VerticalAlignment="Center"/>
 
                                     <StackPanel Grid.Column="1"
@@ -504,12 +529,12 @@
                                                 VerticalAlignment="Center">
                                         <Ellipse x:Name="KeyDot"
                                                  Width="7" Height="7"
-                                                 Fill="{StaticResource Ink3}"
+                                                 Fill="{DynamicResource Ink3}"
                                                  Margin="0,0,7,0"/>
                                         <TextBlock x:Name="KeyStateText"
                                                    Text="空闲"
                                                    FontSize="12"
-                                                   Foreground="{StaticResource Ink2}"
+                                                   Foreground="{DynamicResource Ink2}"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Grid>
@@ -519,7 +544,7 @@
 
                     <!-- 通信记录 -->
                     <Border Grid.Row="2"
-                            Background="{StaticResource Paper}"
+                            Background="{DynamicResource Paper}"
                             CornerRadius="20"
                             Padding="20,18,20,14">
                         <Grid>
@@ -541,6 +566,89 @@
                     </Border>
                 </Grid>
             </Grid>
+
+            <!-- ========== 设置浮层 ========== -->
+            <Border x:Name="SettingsOverlay"
+                    Grid.Row="0" Grid.RowSpan="2"
+                    Background="{DynamicResource Scrim}"
+                    Visibility="Collapsed"
+                    MouseLeftButtonDown="SettingsOverlay_MouseDown">
+
+                <Border Width="520"
+                        Background="{DynamicResource Paper}"
+                        CornerRadius="20"
+                        Padding="28,24"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+
+                    <Border.Effect>
+                        <DropShadowEffect Color="#000000" Opacity="0.18"
+                                          BlurRadius="40" ShadowDepth="8"
+                                          Direction="270"/>
+                    </Border.Effect>
+
+                    <StackPanel>
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Text="设置" FontSize="20" FontWeight="SemiBold"/>
+                                <TextBlock Text="偏好会被记住，下次启动直接生效"
+                                           Style="{StaticResource Hint}"
+                                           Margin="0,6,0,0"/>
+                            </StackPanel>
+
+                            <Button Content="关闭"
+                                    Style="{StaticResource GhostButton}"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    Margin="0,-8,-8,0"
+                                    Click="SettingsClose_Click"/>
+                        </Grid>
+
+                        <TextBlock Text="外观" Style="{StaticResource CardLabel}" Margin="0,28,0,0"/>
+
+                        <Border Style="{StaticResource SegmentBar}" Margin="0,10,0,0">
+                            <UniformGrid Columns="3">
+                                <RadioButton x:Name="ThemeSystemRadio"
+                                             Content="跟随系统"
+                                             Tag="System"
+                                             GroupName="Theme"
+                                             Style="{StaticResource SegmentRadio}"
+                                             Checked="ThemeSegment_Checked"/>
+                                <RadioButton x:Name="ThemeLightRadio"
+                                             Content="浅色"
+                                             Tag="Light"
+                                             GroupName="Theme"
+                                             Style="{StaticResource SegmentRadio}"
+                                             Checked="ThemeSegment_Checked"/>
+                                <RadioButton x:Name="ThemeDarkRadio"
+                                             Content="深色"
+                                             Tag="Dark"
+                                             GroupName="Theme"
+                                             Style="{StaticResource SegmentRadio}"
+                                             Checked="ThemeSegment_Checked"/>
+                            </UniformGrid>
+                        </Border>
+
+                        <TextBlock Text="选「跟随系统」时，会随 Windows 的「应用模式」自动切换。"
+                                   Style="{StaticResource Hint}"
+                                   Margin="0,10,0,0"/>
+
+                        <Border Height="1" Background="{DynamicResource Hairline}" Margin="0,24,0,20"/>
+
+                        <Grid>
+                            <TextBlock Text="CW TRAINER" Style="{StaticResource CardLabel}"/>
+                            <TextBlock x:Name="AboutVersionText"
+                                       Text=""
+                                       Style="{StaticResource Hint}"
+                                       HorizontalAlignment="Right"/>
+                        </Grid>
+
+                        <TextBlock Text="ESP32-S3 双桨电键 + Windows 桌面端。点划时序由设备生成，电脑负责发声与抄收。"
+                                   Style="{StaticResource Hint}"
+                                   Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+            </Border>
 
             <!-- ========== 电码表浮层 ========== -->
             <Border x:Name="DictionaryOverlay"

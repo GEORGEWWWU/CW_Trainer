@@ -87,6 +87,9 @@ public partial class MainWindow : Window
             stage = "初始化下拉框";
             PortCombo.DisplayMemberPath = null;
 
+            stage = "读取偏好设置";
+            ApplySavedPreferences();
+
             stage = "初始化音频输出";
             _audio = new AudioOutput(AddLog);
             RefreshAudioDevices();
@@ -147,7 +150,25 @@ public partial class MainWindow : Window
 
         IntPtr handle = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(handle)?.AddHook(WndProc);
+
+        // 用了 WindowChrome 之后 DWM 不再自动给圆角，这里显式要求一次。
+        // Win11 22000+ 有效；Win10 返回错误码，忽略即可。
+        try
+        {
+            int round = DwmWindowCornerRound;
+            DwmSetWindowAttribute(handle, DwmWindowCornerPreference, ref round, sizeof(int));
+        }
+        catch
+        {
+        }
     }
+
+    private const int DwmWindowCornerPreference = 33;   // DWMWA_WINDOW_CORNER_PREFERENCE
+    private const int DwmWindowCornerRound = 2;         // DWMWCP_ROUND
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd, int attribute, ref int value, int size);
 
     /// <summary>
     /// Windows 切换深浅色时会广播 WM_SETTINGCHANGE，lParam 为 "ImmersiveColorSet"。
@@ -195,15 +216,9 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Maximized)
         {
             WindowState = WindowState.Normal;
-            MaxHeight = double.PositiveInfinity;
-            MaxWidth = double.PositiveInfinity;
             return;
         }
 
-        // 无边框窗口直接最大化会盖住任务栏，用工作区尺寸约束住。
-        Rect workArea = SystemParameters.WorkArea;
-        MaxHeight = workArea.Height;
-        MaxWidth = workArea.Width;
         WindowState = WindowState.Maximized;
     }
 
@@ -1018,6 +1033,7 @@ public partial class MainWindow : Window
 
         _toneHz = (int)e.NewValue;
         ToneValueText.Text = $"{_toneHz} Hz";
+        ScheduleSettingsSave();
     }
 
     private void VolumeSlider_ValueChanged(
@@ -1028,6 +1044,7 @@ public partial class MainWindow : Window
 
         _volume = (int)e.NewValue;
         VolumeValueText.Text = $"{_volume}%";
+        ScheduleSettingsSave();
     }
 
     private void UpdateSliderLabels()
@@ -1048,12 +1065,105 @@ public partial class MainWindow : Window
         KeyTimingText.Text = $"点 {dot} · 划 {dot * 3} ms";
     }
 
+    // ---------- 设置 ----------
+
+    /// <summary>把上次保存的音调、音量套到界面上，并准备防抖保存。</summary>
+    private void ApplySavedPreferences()
+    {
+        _settingsSaveTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(600)
+        };
+
+        _settingsSaveTimer.Tick += (_, _) =>
+        {
+            _settingsSaveTimer!.Stop();
+
+            App.Settings.ToneHz = _toneHz;
+            App.Settings.Volume = _volume;
+            App.Settings.Save();
+        };
+
+        int tone = Math.Clamp(App.Settings.ToneHz, 300, 1200);
+        int volume = Math.Clamp(App.Settings.Volume, 0, 100);
+
+        ToneSlider.Value = tone;
+        VolumeSlider.Value = volume;
+
+        _toneHz = tone;
+        _volume = volume;
+
+        string version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "2.1.0";
+        AboutVersionText.Text = $"V{version}";
+    }
+
+    private void ScheduleSettingsSave()
+    {
+        if (_settingsSaveTimer is null)
+            return;
+
+        _settingsSaveTimer.Stop();
+        _settingsSaveTimer.Start();
+    }
+
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        HideDictionary();
+
+        _suppressThemeUi = true;
+
+        try
+        {
+            (App.Settings.Theme switch
+            {
+                AppTheme.Light => ThemeLightRadio,
+                AppTheme.Dark => ThemeDarkRadio,
+                _ => ThemeSystemRadio
+            }).IsChecked = true;
+        }
+        finally
+        {
+            _suppressThemeUi = false;
+        }
+
+        SettingsOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void SettingsClose_Click(object sender, RoutedEventArgs e)
+        => SettingsOverlay.Visibility = Visibility.Collapsed;
+
+    private void SettingsOverlay_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (ReferenceEquals(e.OriginalSource, sender))
+            SettingsOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void ThemeSegment_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_suppressThemeUi || sender is not RadioButton radio)
+            return;
+
+        AppTheme mode = radio.Tag?.ToString() switch
+        {
+            "Light" => AppTheme.Light,
+            "Dark" => AppTheme.Dark,
+            _ => AppTheme.System
+        };
+
+        App.SetThemeMode(mode);
+        AddLog($"外观：{radio.Content}");
+    }
+
     // ---------- 电码表 ----------
 
     private bool _dictionaryBuilt;
+    private bool _suppressThemeUi;
+    private DispatcherTimer? _settingsSaveTimer;
 
     private void DictionaryButton_Click(object sender, RoutedEventArgs e)
     {
+        SettingsOverlay.Visibility = Visibility.Collapsed;
+
         if (!_dictionaryBuilt)
         {
             DictionaryList.ItemsSource = MorseTable.All;
@@ -1097,7 +1207,15 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && DictionaryOverlay.Visibility == Visibility.Visible)
+        if (e.Key != Key.Escape)
+            return;
+
+        if (SettingsOverlay.Visibility == Visibility.Visible)
+        {
+            SettingsOverlay.Visibility = Visibility.Collapsed;
+            e.Handled = true;
+        }
+        else if (DictionaryOverlay.Visibility == Visibility.Visible)
         {
             HideDictionary();
             e.Handled = true;
