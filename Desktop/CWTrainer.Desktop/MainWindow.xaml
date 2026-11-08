@@ -1,6 +1,7 @@
 <Window x:Class="CWTrainer.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="CW Trainer"
         Icon="Assets/app.ico"
         Width="1200" Height="800"
@@ -14,14 +15,28 @@
         FontSize="13"
         UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Ideal"
-        Closing="Window_Closing">
+        Closing="Window_Closing"
+        KeyDown="Window_KeyDown">
+
+    <!--
+        无边框窗口默认会留一圈由 DWM 绘制的非客户区（顶部那条白边就是它）。
+        用 WindowChrome 把非客户区收掉：CaptionHeight=0 表示自己处理拖动，
+        ResizeBorderThickness 保留边缘拖拽缩放。
+    -->
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            ResizeBorderThickness="6"
+                            GlassFrameThickness="0"
+                            CornerRadius="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
 
     <!--
         整页固定 1200x760 版面，外层 Viewbox 等比缩放：
         任何窗口尺寸都能一次看全，永远不需要页面滚动。
         这也正好对应以后移植到安卓时「一套版面适配所有屏幕」的思路。
     -->
-    <Border BorderBrush="#E4E4E1" BorderThickness="1">
+    <Border BorderBrush="{DynamicResource Hairline}" BorderThickness="1">
     <Viewbox Stretch="Uniform" StretchDirection="Both">
         <Grid Width="1200" Height="800" Background="{StaticResource Surface}">
 
@@ -391,6 +406,10 @@
 
                                 <StackPanel Orientation="Horizontal"
                                             HorizontalAlignment="Right">
+                                    <Button Content="电码表"
+                                            Style="{StaticResource GhostButton}"
+                                            Margin="0,-7,4,0"
+                                            Click="DictionaryButton_Click"/>
                                     <Button Content="复制"
                                             Style="{StaticResource GhostButton}"
                                             Margin="0,-7,4,0"
@@ -522,6 +541,89 @@
                     </Border>
                 </Grid>
             </Grid>
+
+            <!-- ========== 电码表浮层 ========== -->
+            <Border x:Name="DictionaryOverlay"
+                    Grid.Row="0" Grid.RowSpan="2"
+                    Background="{DynamicResource Scrim}"
+                    Visibility="Collapsed"
+                    MouseLeftButtonDown="DictionaryOverlay_MouseDown">
+
+                <Border Width="1000"
+                        Background="{DynamicResource Paper}"
+                        CornerRadius="20"
+                        Padding="28,24"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+
+                    <Border.Effect>
+                        <DropShadowEffect Color="#000000" Opacity="0.18"
+                                          BlurRadius="40" ShadowDepth="8"
+                                          Direction="270"/>
+                    </Border.Effect>
+
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,20">
+                            <StackPanel>
+                                <TextBlock Text="摩斯电码表"
+                                           FontSize="20"
+                                           FontWeight="SemiBold"/>
+                                <TextBlock Text="点任意一行，用当前速度和音调听一遍"
+                                           Style="{StaticResource Hint}"
+                                           Margin="0,6,0,0"/>
+                            </StackPanel>
+
+                            <Button Content="关闭"
+                                    Style="{StaticResource GhostButton}"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    Margin="0,-8,-8,0"
+                                    Click="DictionaryClose_Click"/>
+                        </Grid>
+
+                        <ItemsControl x:Name="DictionaryList" Grid.Row="1" Margin="-10,0,-8,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="5"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource DictItem}"
+                                            Tag="{Binding Code}"
+                                            Click="DictionaryItem_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="32"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Text="{Binding SymbolText}"
+                                                       FontSize="16"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Ink}"
+                                                       VerticalAlignment="Center"/>
+
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding CodeText}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="13"
+                                                       Foreground="{DynamicResource Accent}"
+                                                       VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </Border>
+            </Border>
         </Grid>
     </Viewbox>
     </Border>

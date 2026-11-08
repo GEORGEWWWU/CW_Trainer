@@ -1,0 +1,35 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        亮色主题：墨黑 / 纸白 / 信号橙。
+        暗色主题（Themes/Dark.xaml）必须提供完全相同的键。
+        界面里所有颜色都通过 DynamicResource 引用这里的键，换主题时整页自动刷新。
+    -->
+
+    <SolidColorBrush x:Key="Ink"             Color="#0F0F10"/>
+    <SolidColorBrush x:Key="Ink2"            Color="#6A6A6E"/>
+    <SolidColorBrush x:Key="Ink3"            Color="#9C9CA0"/>
+
+    <SolidColorBrush x:Key="Paper"           Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Surface"         Color="#F4F4F3"/>
+    <SolidColorBrush x:Key="SurfaceSunken"   Color="#E9E9E6"/>
+    <SolidColorBrush x:Key="Hairline"        Color="#E4E4E1"/>
+
+    <SolidColorBrush x:Key="Accent"          Color="#FF5A1F"/>
+    <SolidColorBrush x:Key="AccentDown"      Color="#E54A13"/>
+
+    <!-- 反色：用于墨黑底上的文字/图标 -->
+    <SolidColorBrush x:Key="OnInk"           Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="InkHover"        Color="#26262A"/>
+    <SolidColorBrush x:Key="InkPressed"      Color="#000000"/>
+
+    <!-- 分段控件 -->
+    <SolidColorBrush x:Key="SegmentHover"    Color="#E7E7E4"/>
+    <SolidColorBrush x:Key="SegmentOff"      Color="#C9C9CB"/>
+    <SolidColorBrush x:Key="SegmentOffText"  Color="#B6B6B9"/>
+
+    <SolidColorBrush x:Key="Scrim"           Color="#59000000"/>
+    <SolidColorBrush x:Key="PopupBorder"     Color="#E4E4E1"/>
+
+</ResourceDictionary>

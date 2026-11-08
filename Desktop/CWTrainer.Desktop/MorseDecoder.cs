@@ -2,72 +2,49 @@ using System.Text;
 
 namespace CWTrainer.Desktop;
 
+/// <summary>电码表里的一行。</summary>
+public sealed record MorseEntry(char Symbol, string Code)
+{
+    /// <summary>字符本身，绑定用。</summary>
+    public string SymbolText => Symbol.ToString();
+
+    /// <summary>点划显示，用 · 和 — 便于和界面预览保持一致。</summary>
+    public string CodeText => string.Join(' ', Code.Select(c => c == '.' ? "·" : "—"));
+}
+
 /// <summary>
-/// 摩斯码字符表。
+/// 摩斯码字符表。Entries 保持展示顺序，字典由它生成，保证两者一致。
 /// </summary>
 public static class MorseTable
 {
     public const char Unknown = '¿';
 
-    private static readonly Dictionary<string, char> Map = new(StringComparer.Ordinal)
+    private static readonly MorseEntry[] Entries =
     {
-        [".-"] = 'A',
-        ["-..."] = 'B',
-        ["-.-."] = 'C',
-        ["-.."] = 'D',
-        ["."] = 'E',
-        ["..-."] = 'F',
-        ["--."] = 'G',
-        ["...."] = 'H',
-        [".."] = 'I',
-        [".---"] = 'J',
-        ["-.-"] = 'K',
-        [".-.."] = 'L',
-        ["--"] = 'M',
-        ["-."] = 'N',
-        ["---"] = 'O',
-        [".--."] = 'P',
-        ["--.-"] = 'Q',
-        [".-."] = 'R',
-        ["..."] = 'S',
-        ["-"] = 'T',
-        ["..-"] = 'U',
-        ["...-"] = 'V',
-        [".--"] = 'W',
-        ["-..-"] = 'X',
-        ["-.--"] = 'Y',
-        ["--.."] = 'Z',
+        new('A', ".-"),    new('B', "-..."),  new('C', "-.-."),  new('D', "-.."),
+        new('E', "."),     new('F', "..-."),  new('G', "--."),   new('H', "...."),
+        new('I', ".."),    new('J', ".---"),  new('K', "-.-"),   new('L', ".-.."),
+        new('M', "--"),    new('N', "-."),    new('O', "---"),   new('P', ".--."),
+        new('Q', "--.-"),  new('R', ".-."),   new('S', "..."),   new('T', "-"),
+        new('U', "..-"),   new('V', "...-"),  new('W', ".--"),   new('X', "-..-"),
+        new('Y', "-.--"),  new('Z', "--.."),
 
-        ["-----"] = '0',
-        [".----"] = '1',
-        ["..---"] = '2',
-        ["...--"] = '3',
-        ["....-"] = '4',
-        ["....."] = '5',
-        ["-...."] = '6',
-        ["--..."] = '7',
-        ["---.."] = '8',
-        ["----."] = '9',
+        new('0', "-----"), new('1', ".----"), new('2', "..---"), new('3', "...--"),
+        new('4', "....-"), new('5', "....."), new('6', "-...."), new('7', "--..."),
+        new('8', "---.."), new('9', "----."),
 
-        [".-.-.-"] = '.',
-        ["--..--"] = ',',
-        ["..--.."] = '?',
-        [".----."] = '\'',
-        ["-.-.--"] = '!',
-        ["-..-."] = '/',
-        ["-.--."] = '(',
-        ["-.--.-"] = ')',
-        [".-..."] = '&',
-        ["---..."] = ':',
-        ["-.-.-."] = ';',
-        ["-...-"] = '=',
-        [".-.-."] = '+',
-        ["-....-"] = '-',
-        ["..--.-"] = '_',
-        [".-..-."] = '"',
-        ["...-..-"] = '$',
-        [".--.-."] = '@'
+        new('.', ".-.-.-"), new(',', "--..--"), new('?', "..--.."), new('\'', ".----."),
+        new('!', "-.-.--"), new('/', "-..-."),  new('(', "-.--."),  new(')', "-.--.-"),
+        new('&', ".-..."),  new(':', "---..."), new(';', "-.-.-."), new('=', "-...-"),
+        new('+', ".-.-."),  new('-', "-....-"), new('_', "..--.-"), new('"', ".-..-."),
+        new('$', "...-..-"), new('@', ".--.-.")
     };
+
+    private static readonly Dictionary<string, char> Map =
+        Entries.ToDictionary(e => e.Code, e => e.Symbol, StringComparer.Ordinal);
+
+    /// <summary>按展示顺序返回全部电码，供电码表界面使用。</summary>
+    public static IReadOnlyList<MorseEntry> All => Entries;
 
     public static bool TryDecode(string code, out char symbol)
         => Map.TryGetValue(code, out symbol);

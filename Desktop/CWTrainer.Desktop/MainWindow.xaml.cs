@@ -1,11 +1,14 @@
 using System.Collections.ObjectModel;
 using System.IO.Ports;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 
 namespace CWTrainer.Desktop;
@@ -137,6 +140,34 @@ public partial class MainWindow : Window
     }
 
     // ---------- 窗口 ----------
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        IntPtr handle = new WindowInteropHelper(this).Handle;
+        HwndSource.FromHwnd(handle)?.AddHook(WndProc);
+    }
+
+    /// <summary>
+    /// Windows 切换深浅色时会广播 WM_SETTINGCHANGE，lParam 为 "ImmersiveColorSet"。
+    /// SystemEvents 有时不触发，所以这里直接挂消息钩子。
+    /// </summary>
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WmSettingChange = 0x001A;
+
+        if (msg == WmSettingChange)
+        {
+            string? area = lParam == IntPtr.Zero ? null : Marshal.PtrToStringUni(lParam);
+
+            if (string.IsNullOrEmpty(area) || area == "ImmersiveColorSet")
+                App.RefreshTheme();
+        }
+
+        return IntPtr.Zero;
+    }
+
 
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -459,9 +490,7 @@ public partial class MainWindow : Window
         PostUi(() =>
         {
             KeyStateText.Text = text;
-            KeyDot.Fill = anyPressed
-                ? (Brush)FindResource("Accent")
-                : (Brush)FindResource("Ink3");
+            KeyDot.SetResourceReference(Shape.FillProperty, anyPressed ? "Accent" : "Ink3");
         });
     }
 
@@ -756,10 +785,11 @@ public partial class MainWindow : Window
         {
             // 空白由中间的提示承担，这里不要重复文案
             PreviewText.Text = string.Empty;
+            PreviewText.SetResourceReference(TextBlock.ForegroundProperty, "Ink3");
             return;
         }
 
-        PreviewText.Foreground = (Brush)FindResource("Accent");
+        PreviewText.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
         PreviewText.Text = string.Join(
             " ",
             pending.Select(c => c == '.' ? "·" : "—"));
@@ -856,7 +886,7 @@ public partial class MainWindow : Window
         _straightMarkStartMs = -1;
 
         KeyStateText.Text = "空闲";
-        KeyDot.Fill = (Brush)FindResource("Ink3");
+        KeyDot.SetResourceReference(Shape.FillProperty, "Ink3");
 
         StopComputerTone();
 
@@ -899,9 +929,7 @@ public partial class MainWindow : Window
 
     private void SetConnectionUi(bool connected, string? portName)
     {
-        ConnectionDot.Fill = connected
-            ? (Brush)FindResource("Accent")
-            : (Brush)FindResource("Ink3");
+        ConnectionDot.SetResourceReference(Shape.FillProperty, connected ? "Accent" : "Ink3");
 
         ConnectionText.Text = connected
             ? $"已连接 · {portName}"
@@ -1020,6 +1048,62 @@ public partial class MainWindow : Window
         KeyTimingText.Text = $"点 {dot} · 划 {dot * 3} ms";
     }
 
+    // ---------- 电码表 ----------
+
+    private bool _dictionaryBuilt;
+
+    private void DictionaryButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_dictionaryBuilt)
+        {
+            DictionaryList.ItemsSource = MorseTable.All;
+            _dictionaryBuilt = true;
+        }
+
+        DictionaryOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void DictionaryClose_Click(object sender, RoutedEventArgs e)
+        => HideDictionary();
+
+    private void DictionaryOverlay_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // 点到遮罩本身才关，点卡片里面的内容不关
+        if (ReferenceEquals(e.OriginalSource, sender))
+            HideDictionary();
+    }
+
+    private void HideDictionary()
+        => DictionaryOverlay.Visibility = Visibility.Collapsed;
+
+    private void DictionaryItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string code })
+            PlayCode(code);
+    }
+
+    /// <summary>按当前 WPM 把一段点划播放出来。</summary>
+    private async void PlayCode(string code)
+    {
+        int unit = (int)Math.Round(1200.0 / Math.Clamp(_pendingWpm, 5, 60));
+
+        foreach (char c in code)
+        {
+            int mark = c == '.' ? unit : unit * 3;
+            PlayComputerTone(mark);
+            await Task.Delay(mark + unit);
+        }
+    }
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && DictionaryOverlay.Visibility == Visibility.Visible)
+        {
+            HideDictionary();
+            e.Handled = true;
+        }
+    }
+
     // ---------- 抄收区 ----------
 
     private void ClearPreviewButton_Click(object sender, RoutedEventArgs e)
@@ -1031,10 +1115,11 @@ public partial class MainWindow : Window
         }
 
         PreviewText.Text = string.Empty;
+        PreviewText.SetResourceReference(TextBlock.ForegroundProperty, "Ink3");
         DecodedText.Text = "";
         EmptyHint.Visibility = Visibility.Visible;
         KeyStateText.Text = "空闲";
-        KeyDot.Fill = (Brush)FindResource("Ink3");
+        KeyDot.SetResourceReference(Shape.FillProperty, "Ink3");
     }
 
     private void CopyTextButton_Click(object sender, RoutedEventArgs e)

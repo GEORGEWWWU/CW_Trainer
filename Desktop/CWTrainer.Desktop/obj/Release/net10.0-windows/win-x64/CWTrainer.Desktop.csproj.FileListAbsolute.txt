@@ -20,3 +20,5 @@ I:\Arduino\CW_Trainer\Desktop\CWTrainer.Desktop\obj\Release\net10.0-windows\win-
 I:\Arduino\CW_Trainer\Desktop\CWTrainer.Desktop\obj\Release\net10.0-windows\win-x64\refint\CWTrainer.Desktop.dll
 I:\Arduino\CW_Trainer\Desktop\CWTrainer.Desktop\obj\Release\net10.0-windows\win-x64\CWTrainer.Desktop.genruntimeconfig.cache
 I:\Arduino\CW_Trainer\Desktop\CWTrainer.Desktop\obj\Release\net10.0-windows\win-x64\ref\CWTrainer.Desktop.dll
+I:\Arduino\CW_Trainer\Desktop\CWTrainer.Desktop\obj\Release\net10.0-windows\win-x64\Themes\Dark.baml
+I:\Arduino\CW_Trainer\Desktop\CWTrainer.Desktop\obj\Release\net10.0-windows\win-x64\Themes\Light.baml
