@@ -1,4 +1,3 @@
-
 /*
  * ============================================
  * CW TRAINER V1 （CW 练习器 V1 版本）
@@ -6,18 +5,18 @@
  * Arduino ESP32 Core 2.0.17-cn
  * ============================================
  *
- * GPIO4 : DAH paddle
- * GPIO5 : DIT paddle
- * GPIO6 : Active HIGH buzzer
+ * GPIO4 : DAH paddle ｜ GPIO4：划键（长码键）右手
+ * GPIO5 : DIT paddle ｜ GPIO5：点键（短码键）左手
+ * GPIO6 : Active HIGH buzzer ｜ GPIO6：高电平有效蜂鸣器
  *
- * Features:
- * - Straight Key
- * - Iambic A
- * - Iambic B
- * - Adjustable WPM
- * - Paddle debounce
- * - Paddle memory
- * - Non-blocking CW timing
+ * Features: ｜ 功能特性：
+ * - Straight Key ｜ 直键模式
+ * - Iambic A ｜ 双桨A模式
+ * - Iambic B ｜ 双桨B模式
+ * - Adjustable WPM ｜ 码速可调（WPM）
+ * - Paddle debounce ｜ 按键消抖
+ * - Paddle memory ｜ 桨键记忆功能
+ * - Non-blocking CW timing ｜ 非阻塞CW时序
  */
 
 // ============================================
