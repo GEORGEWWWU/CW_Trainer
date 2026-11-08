@@ -11,6 +11,7 @@
   USB protocol: newline-delimited ASCII commands/events at 115200.
   USB通信协议：波特率115200，换行分隔ASCII指令与事件
   PC commands:                                 上位机指令：
+    BYE                                        BYE
     HELLO,1                                    HELLO,1
     PING                                       PING
     GET                                        GET
@@ -317,6 +318,14 @@ static void acknowledge(const char* key, const char* value) {
 }
 
 static void handleCommand(char* line) {
+  if (strcmp(line, "BYE") == 0) {
+    outputMode = OUTPUT_BUZZER;
+    updateBuzzerOutput();
+    sendLine("BYE,BUZZER");
+    hostConnected = false;
+    return;
+  }
+
   if (strcmp(line, "HELLO,1") == 0) {
     hostConnected = true;
     lastHostPingMs = millis();
@@ -403,20 +412,11 @@ static void readSerialCommands() {
 
     const char c = (char)raw;
 
-    // DEBUG 1: Report every received byte in HEX
-    Serial.print("DBG_RX,");
-    if (raw < 16) Serial.print("0");
-    Serial.println(raw, HEX);
-
     if (c == '\r') continue;
 
     if (c == '\n') {
 
       commandBuffer[commandLength] = '\0';
-
-      // DEBUG 2: Report the complete received command
-      Serial.print("DBG_LINE,");
-      Serial.println(commandBuffer);
 
       if (commandLength > 0) {
         handleCommand(commandBuffer);
@@ -430,7 +430,6 @@ static void readSerialCommands() {
       commandBuffer[commandLength++] = c;
     } else {
       commandLength = 0;
-      Serial.println("DBG_ERROR,LINE_TOO_LONG");
     }
   }
 }
