@@ -1,0 +1,30 @@
+<Application x:Class="CWTrainer.Desktop.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="WindowBg" Color="#0B1020" />
+        <SolidColorBrush x:Key="PanelBg" Color="#141D30" />
+        <SolidColorBrush x:Key="PanelBorder" Color="#26334A" />
+        <SolidColorBrush x:Key="TextPrimary" Color="#EDF3FC" />
+        <SolidColorBrush x:Key="TextMuted" Color="#91A0B8" />
+        <SolidColorBrush x:Key="Accent" Color="#6EA8FE" />
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Foreground" Value="#F7FAFF" />
+            <Setter Property="Background" Value="#285EAC" />
+            <Setter Property="BorderBrush" Value="#3979D0" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="MinHeight" Value="34" />
+        </Style>
+    </Application.Resources>
+</Application>
