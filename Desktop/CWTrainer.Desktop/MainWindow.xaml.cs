@@ -25,6 +25,9 @@ public partial class MainWindow : Window
     /// <summary>解码状态机的推进周期。</summary>
     private const int DecodeTickMs = 20;
 
+    /// <summary>拖动 WPM 滑块时的下发延迟，避免每格都发命令。</summary>
+    private const int WpmApplyDelayMs = 280;
+
     private readonly ObservableCollection<string> _events = new();
 
     // 解码器、桨叶状态由串口接收线程和定时器线程共同访问
@@ -38,9 +41,10 @@ public partial class MainWindow : Window
     private readonly object _writeLock = new();
     private readonly object _audioLock = new();
 
-    // 心跳放在线程池上，避免 UI 线程一卡顿就被固件判定为“上位机失联”
+    // 心跳与解码都放在线程池上，避免 UI 线程一卡顿就被固件判定为“上位机失联”
     private Timer? _heartbeatTimer;
     private Timer? _decodeTimer;
+    private DispatcherTimer? _wpmApplyTimer;
     private bool _sendFailureLogged;
 
     private SerialPort? _port;
@@ -58,6 +62,7 @@ public partial class MainWindow : Window
     private volatile int _toneHz = 650;
     private volatile int _volume = 45;
 
+    private int _pendingWpm = 15;
     private long _straightMarkStartMs = -1;
 
     private int _decodeUiPending;
@@ -80,15 +85,33 @@ public partial class MainWindow : Window
             stage = "绑定事件列表";
             EventList.ItemsSource = _events;
 
-            stage = "初始化默认选项";
-            OutputCombo.SelectedIndex = 0;
-            ModeCombo.SelectedIndex = 2;
+            stage = "初始化下拉框";
+            PortCombo.DisplayMemberPath = null;
 
-            stage = "更新滑块标签";
+            stage = "更新数值标签";
             UpdateSliderLabels();
 
             stage = "初始化连接状态";
             SetConnectionUi(false, null);
+
+            stage = "初始化 WPM 下发定时器";
+            _wpmApplyTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(WpmApplyDelayMs)
+            };
+
+            _wpmApplyTimer.Tick += (_, _) =>
+            {
+                _wpmApplyTimer!.Stop();
+
+                if (!_isConnected)
+                    return;
+
+                SendCommand($"SET,WPM,{_pendingWpm}");
+
+                lock (_stateLock)
+                    _decoder.SetWpm(_pendingWpm);
+            };
 
             // 窗口加载后再扫描串口，避免阻塞首次显示。
             stage = "安排串口扫描";
@@ -111,19 +134,45 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------- 标题栏 ----------
+    // ---------- 窗口 ----------
 
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ButtonState == MouseButtonState.Pressed)
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            return;
+        }
+
+        if (e.ButtonState == MouseButtonState.Pressed && WindowState == WindowState.Normal)
             DragMove();
     }
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
+    private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+        => ToggleMaximize();
+
     private void CloseButton_Click(object sender, RoutedEventArgs e)
         => Close();
+
+    private void ToggleMaximize()
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            WindowState = WindowState.Normal;
+            MaxHeight = double.PositiveInfinity;
+            MaxWidth = double.PositiveInfinity;
+            return;
+        }
+
+        // 无边框窗口直接最大化会盖住任务栏，用工作区尺寸约束住。
+        Rect workArea = SystemParameters.WorkArea;
+        MaxHeight = workArea.Height;
+        MaxWidth = workArea.Width;
+        WindowState = WindowState.Maximized;
+    }
 
     // ---------- 串口 ----------
 
@@ -254,7 +303,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 串口接收线程。所有和时间相关的事件都在这个线程上处理，不经过 UI 线程，
-    /// 避免界面卡顿把点划间隔算错——解码不准有相当一部分原因在这里。
+    /// 避免界面卡顿把点划间隔算错。
     /// </summary>
     private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
     {
@@ -397,13 +446,21 @@ public partial class MainWindow : Window
             else _pressedPaddles.Remove(paddle);
 
             text = _pressedPaddles.Count == 0
-                ? "等待输入"
+                ? "空闲"
                 : string.Join("  +  ", _pressedPaddles
                     .OrderBy(p => p)
                     .Select(p => p == "DIT" ? "点 ·" : "划 —"));
         }
 
-        PostUi(() => KeyStateText.Text = text);
+        bool anyPressed = pressed || _pressedPaddles.Count > 0;
+
+        PostUi(() =>
+        {
+            KeyStateText.Text = text;
+            KeyDot.Fill = anyPressed
+                ? (Brush)FindResource("Accent")
+                : (Brush)FindResource("Ink3");
+        });
     }
 
     /// <summary>
@@ -534,10 +591,10 @@ public partial class MainWindow : Window
                 WpmSlider.Value = Math.Clamp(wpm, 5, 60);
 
             if (mode.Length > 0)
-                SelectComboByTag(ModeCombo, mode);
+                CheckSegmentByTag(mode);
 
             if (output.Length > 0)
-                SelectComboByTag(OutputCombo, output);
+                CheckOutputByTag(output);
         }
         finally
         {
@@ -547,16 +604,23 @@ public partial class MainWindow : Window
         UpdateSliderLabels();
     }
 
-    private static void SelectComboByTag(ComboBox combo, string tag)
+    private void CheckOutputByTag(string tag)
     {
-        foreach (ComboBoxItem item in combo.Items)
+        switch (tag)
         {
-            if (string.Equals(item.Tag?.ToString(), tag,
-                StringComparison.OrdinalIgnoreCase))
-            {
-                combo.SelectedItem = item;
-                return;
-            }
+            case "PC": OutputPcRadio.IsChecked = true; break;
+            case "BOTH": OutputBothRadio.IsChecked = true; break;
+            default: OutputBuzzerRadio.IsChecked = true; break;
+        }
+    }
+
+    private void CheckSegmentByTag(string tag)
+    {
+        switch (tag)
+        {
+            case "STRAIGHT": ModeStraightRadio.IsChecked = true; break;
+            case "IAMBIC_A": ModeIambicARadio.IsChecked = true; break;
+            default: ModeIambicBRadio.IsChecked = true; break;
         }
     }
 
@@ -682,13 +746,18 @@ public partial class MainWindow : Window
         }
 
         DecodedText.Text = decoded;
+        EmptyHint.Visibility = decoded.Length == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         if (pending.Length == 0)
         {
-            PreviewText.Text = "等待输入";
+            // 空白由中间的提示承担，这里不要重复文案
+            PreviewText.Text = string.Empty;
             return;
         }
 
+        PreviewText.Foreground = (Brush)FindResource("Accent");
         PreviewText.Text = string.Join(
             " ",
             pending.Select(c => c == '.' ? "·" : "—"));
@@ -698,7 +767,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 请固件交还实体蜂鸣器，并等待它明确回复 BYE,BUZZER。
-    /// 旧实现只写不确认，端口随后立刻关闭，这条命令可能根本没送出去，
+    /// 只发送不确认的旧实现，在端口随即被关闭时可能丢掉这条命令，
     /// 硬件于是停在静音状态，只能 RST。
     /// </summary>
     private async Task<bool> RequestDeviceHandoffAsync(int timeoutMs)
@@ -784,13 +853,14 @@ public partial class MainWindow : Window
 
         _straightMarkStartMs = -1;
 
-        KeyStateText.Text = "等待输入";
+        KeyStateText.Text = "空闲";
+        KeyDot.Fill = (Brush)FindResource("Ink3");
 
         StopComputerTone();
 
         _outputMode = "BUZZER";
         _suppressUiEvents = true;
-        OutputCombo.SelectedIndex = 0;
+        OutputBuzzerRadio.IsChecked = true;
         _suppressUiEvents = false;
 
         SetConnectionUi(false, null);
@@ -828,71 +898,68 @@ public partial class MainWindow : Window
     private void SetConnectionUi(bool connected, string? portName)
     {
         ConnectionDot.Fill = connected
-            ? new SolidColorBrush(Color.FromRgb(78, 142, 105))
-            : new SolidColorBrush(Color.FromRgb(184, 153, 105));
+            ? (Brush)FindResource("Accent")
+            : (Brush)FindResource("Ink3");
 
         ConnectionText.Text = connected
             ? $"已连接 · {portName}"
-            : "尚未连接";
+            : "未连接";
 
-        ConnectButton.Content = connected ? "断开设备" : "连接设备";
+        ConnectButton.Content = connected ? "断开连接" : "连接设备";
 
         DeviceInfoText.Text = connected
-            ? "设备已就绪，电脑音频与实体蜂鸣器可切换。"
-            : "请连接 ESP32-S3 的 USB OTG 接口。";
+            ? "设备已就绪。点划时序由设备生成，电脑只负责发声与抄收。"
+            : "请选择 ESP32-S3 的 USB OTG 端口。";
 
-        OutputCombo.IsEnabled = connected;
-        ModeCombo.IsEnabled = connected;
+        PortCombo.IsEnabled = !connected;
+        RefreshButton.IsEnabled = !connected;
+
+        OutputBuzzerRadio.IsEnabled = connected;
+        OutputPcRadio.IsEnabled = connected;
+        OutputBothRadio.IsEnabled = connected;
+
+        ModeStraightRadio.IsEnabled = connected;
+        ModeIambicARadio.IsEnabled = connected;
+        ModeIambicBRadio.IsEnabled = connected;
+
         WpmSlider.IsEnabled = connected;
-        ApplySettingsButton.IsEnabled = connected;
     }
 
-    // ---------- 输出与设置 ----------
+    // ---------- 声音输出 ----------
 
-    private void OutputCombo_SelectionChanged(
-        object sender, SelectionChangedEventArgs e)
+    private void OutputSegment_Checked(object sender, RoutedEventArgs e)
     {
-        if (_suppressUiEvents ||
-            OutputCombo.SelectedItem is not ComboBoxItem item)
+        if (_suppressUiEvents || sender is not RadioButton radio)
             return;
 
-        string mode = item.Tag?.ToString() ?? "BUZZER";
+        string mode = radio.Tag?.ToString() ?? "BUZZER";
         _outputMode = mode;
 
-        if (_isConnected)
-        {
-            SendCommand($"SET,OUTPUT,{mode}");
+        if (!_isConnected)
+            return;
 
-            if (mode == "BUZZER")
-                StopComputerTone();
+        SendCommand($"SET,OUTPUT,{mode}");
 
-            AddLog($"声音输出：{item.Content}");
-        }
+        if (mode == "BUZZER")
+            StopComputerTone();
+
+        AddLog($"声音输出：{radio.Content}");
     }
 
-    private void ApplySettingsButton_Click(object sender, RoutedEventArgs e)
+    private void ModeSegment_Checked(object sender, RoutedEventArgs e)
     {
-        if (!_isConnected)
-        {
-            MessageBox.Show("请先连接设备。");
+        if (_suppressUiEvents || sender is not RadioButton radio)
             return;
-        }
 
-        int wpm = (int)WpmSlider.Value;
-        string mode = (ModeCombo.SelectedItem as ComboBoxItem)?
-            .Tag?.ToString() ?? "IAMBIC_B";
-
-        SendCommand($"SET,WPM,{wpm}");
-        SendCommand($"SET,MODE,{mode}");
-
+        string mode = radio.Tag?.ToString() ?? "IAMBIC_B";
         _deviceMode = mode;
 
-        lock (_stateLock)
-            _decoder.SetWpm(wpm);
+        if (!_isConnected)
+            return;
 
-        AddLog($"设置已发送：{wpm} WPM / {mode}");
+        SendCommand($"SET,MODE,{mode}");
+        AddLog($"键控模式：{radio.Content}");
     }
-
 
     private void WpmSlider_ValueChanged(
         object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -900,7 +967,17 @@ public partial class MainWindow : Window
         if (WpmValueText == null)
             return;
 
-        WpmValueText.Text = $"{(int)e.NewValue} WPM";
+        int wpm = (int)Math.Round(e.NewValue);
+        _pendingWpm = wpm;
+        WpmValueText.Text = $"{wpm} WPM";
+        UpdateTimingText(wpm);
+
+        if (_suppressUiEvents || !_isConnected || _wpmApplyTimer == null)
+            return;
+
+        // 拖动过程中不逐格下发，停手后再发一次。
+        _wpmApplyTimer.Stop();
+        _wpmApplyTimer.Start();
     }
 
     private void ToneSlider_ValueChanged(
@@ -923,15 +1000,25 @@ public partial class MainWindow : Window
         VolumeValueText.Text = $"{_volume}%";
     }
 
-
     private void UpdateSliderLabels()
     {
         WpmValueText.Text = $"{(int)WpmSlider.Value} WPM";
         ToneValueText.Text = $"{(int)ToneSlider.Value} Hz";
         VolumeValueText.Text = $"{(int)VolumeSlider.Value}%";
+        UpdateTimingText((int)WpmSlider.Value);
     }
 
-    // ---------- 摩斯码解码（界面部分） ----------
+    /// <summary>把当前速度换算成本地能看懂的点划时长。</summary>
+    private void UpdateTimingText(int wpm)
+    {
+        if (KeyTimingText == null)
+            return;
+
+        int dot = (int)Math.Round(1200.0 / Math.Clamp(wpm, 5, 60));
+        KeyTimingText.Text = $"点 {dot} · 划 {dot * 3} ms";
+    }
+
+    // ---------- 抄收区 ----------
 
     private void ClearPreviewButton_Click(object sender, RoutedEventArgs e)
     {
@@ -941,9 +1028,11 @@ public partial class MainWindow : Window
             _pressedPaddles.Clear();
         }
 
-        PreviewText.Text = "等待输入";
+        PreviewText.Text = string.Empty;
         DecodedText.Text = "";
-        KeyStateText.Text = "等待输入";
+        EmptyHint.Visibility = Visibility.Visible;
+        KeyStateText.Text = "空闲";
+        KeyDot.Fill = (Brush)FindResource("Ink3");
     }
 
     private void CopyTextButton_Click(object sender, RoutedEventArgs e)
