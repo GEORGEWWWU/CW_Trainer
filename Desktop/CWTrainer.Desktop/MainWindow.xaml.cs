@@ -31,7 +31,6 @@ public partial class MainWindow : Window
 
     private bool _isConnected;
     private bool _suppressUiEvents;
-    private bool _isClosing;
     private string _outputMode = "BUZZER";
     private string _deviceMode = "IAMBIC_B";
 
@@ -121,13 +120,28 @@ public partial class MainWindow : Window
             stage = "初始化连接状态";
             SetConnectionUi(false, null);
 
+
             stage = "初始化心跳定时器";
+
             _heartbeatTimer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(1500)
             };
 
             _heartbeatTimer.Tick += (_, _) => SendCommand("PING");
+
+            // 字符间隔定时器：达到 3 个 Dit 时间，结束当前字符
+            stage = "初始化字符解码定时器";
+
+            _characterTimer = new DispatcherTimer();
+            _characterTimer.Tick += (_, _) => FinishMorseCharacter();
+
+            // 单词间隔定时器：达到 7 个 Dit 时间，结束当前单词
+            stage = "初始化单词解码定时器";
+
+            _wordTimer = new DispatcherTimer();
+            _wordTimer.Tick += (_, _) => FinishMorseWord();
+
 
             // 窗口加载后再扫描串口，避免阻塞首次显示。
             stage = "安排串口扫描";
@@ -898,7 +912,6 @@ public partial class MainWindow : Window
         object? sender,
         System.ComponentModel.CancelEventArgs e)
     {
-        _isClosing = true;
 
         // 关闭窗口时不阻塞等待 UI 回调。
         // BYE 尝试发送；若 USB 已断开，固件心跳超时会兜底。
