@@ -5,21 +5,28 @@
 
     <Application.Resources>
 
-        <!-- Color palette -->
-        <SolidColorBrush x:Key="WindowBg" Color="#0B1020"/>
-        <SolidColorBrush x:Key="PanelBg" Color="#141D30"/>
-        <SolidColorBrush x:Key="PanelBorder" Color="#26334A"/>
+        <!-- CW Trainer · Warm Minimal Palette -->
 
-        <SolidColorBrush x:Key="TextPrimary" Color="#EDF3FC"/>
-        <SolidColorBrush x:Key="TextMuted" Color="#91A0B8"/>
-        <SolidColorBrush x:Key="Accent" Color="#6EA8FE"/>
+        <SolidColorBrush x:Key="WindowBg" Color="#F5F3EE"/>
+        <SolidColorBrush x:Key="PanelBg" Color="#FFFEFB"/>
+        <SolidColorBrush x:Key="PanelBorder" Color="#E8E4DC"/>
 
-        <SolidColorBrush x:Key="InputBg" Color="#18243A"/>
-        <SolidColorBrush x:Key="InputBorder" Color="#344865"/>
-        <SolidColorBrush x:Key="InputHover" Color="#263B5A"/>
-        <SolidColorBrush x:Key="InputSelected" Color="#285EAC"/>
+        <SolidColorBrush x:Key="PaperBg" Color="#F2F0EA"/>
+        <SolidColorBrush x:Key="SurfaceBg" Color="#F7F5F0"/>
 
-        <!-- Global TextBlock -->
+        <SolidColorBrush x:Key="TextPrimary" Color="#292C28"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#555B52"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#96988F"/>
+
+        <SolidColorBrush x:Key="Accent" Color="#66866F"/>
+        <SolidColorBrush x:Key="AccentHover" Color="#54745D"/>
+        <SolidColorBrush x:Key="AccentLight" Color="#E8EFE8"/>
+
+        <SolidColorBrush x:Key="InputBg" Color="#F8F7F3"/>
+        <SolidColorBrush x:Key="InputBorder" Color="#E3DFD6"/>
+        <SolidColorBrush x:Key="InputHover" Color="#EFEEE8"/>
+
+        <!-- 全局文字 -->
         <Style TargetType="{x:Type TextBlock}">
             <Setter Property="Foreground"
                     Value="{StaticResource TextPrimary}"/>
@@ -27,62 +34,176 @@
                     Value="Segoe UI"/>
         </Style>
 
-        <!-- Global Button -->
-        <Style TargetType="{x:Type Button}">
-            <Setter Property="Padding" Value="14,8"/>
-            <Setter Property="Foreground" Value="#F7FAFF"/>
-            <Setter Property="Background" Value="#285EAC"/>
-            <Setter Property="BorderBrush" Value="#3979D0"/>
-            <Setter Property="BorderThickness" Value="1"/>
+        <!-- 主按钮 -->
+        <Style x:Key="PrimaryButton"
+               TargetType="{x:Type Button}">
+            <Setter Property="Background"
+                    Value="{StaticResource Accent}"/>
+            <Setter Property="Foreground"
+                    Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="MinHeight" Value="38"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="9"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder"
+                                        Property="Background"
+                                        Value="{StaticResource AccentHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder"
+                                        Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder"
+                                        Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <!-- Dark ComboBox -->
-        <Style TargetType="{x:Type ComboBox}">
-            <Setter Property="Foreground" Value="#EDF3FC"/>
-            <Setter Property="Background" Value="#18243A"/>
-            <Setter Property="BorderBrush" Value="#344865"/>
+        <!-- 次级按钮 -->
+        <Style x:Key="SecondaryButton"
+               TargetType="{x:Type Button}">
+            <Setter Property="Background"
+                    Value="{StaticResource SurfaceBg}"/>
+            <Setter Property="Foreground"
+                    Value="{StaticResource TextSecondary}"/>
+            <Setter Property="BorderBrush"
+                    Value="{StaticResource PanelBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,6"/>
-            <Setter Property="MinHeight" Value="38"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="14,9"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder"
+                                        Property="Background"
+                                        Value="{StaticResource InputHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder"
+                                        Property="Opacity" Value="0.75"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
+        <!-- 标题栏按钮 -->
+        <Style x:Key="TitleBarButton"
+               TargetType="{x:Type Button}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground"
+                    Value="{StaticResource TextMuted}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder"
+                                        Property="Background"
+                                        Value="{StaticResource InputHover}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 输入框 -->
+        <Style TargetType="{x:Type ComboBox}">
+            <Setter Property="Background"
+                    Value="{StaticResource InputBg}"/>
+            <Setter Property="Foreground"
+                    Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderBrush"
+                    Value="{StaticResource InputBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="MinHeight" Value="38"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="ItemContainerStyle">
                 <Setter.Value>
                     <Style TargetType="{x:Type ComboBoxItem}">
-                        <Setter Property="Foreground" Value="#EDF3FC"/>
-                        <Setter Property="Background" Value="#18243A"/>
-                        <Setter Property="Padding" Value="10,8"/>
-                        <Setter Property="HorizontalContentAlignment"
-                                Value="Stretch"/>
-
+                        <Setter Property="Foreground"
+                                Value="{StaticResource TextPrimary}"/>
+                        <Setter Property="Background"
+                                Value="{StaticResource PanelBg}"/>
+                        <Setter Property="Padding" Value="10,9"/>
                         <Style.Triggers>
-                            <Trigger Property="IsHighlighted"
-                                     Value="True">
+                            <Trigger Property="IsHighlighted" Value="True">
                                 <Setter Property="Background"
-                                        Value="#263B5A"/>
-                                <Setter Property="Foreground"
-                                        Value="#FFFFFF"/>
+                                        Value="{StaticResource AccentLight}"/>
                             </Trigger>
-
-                            <Trigger Property="IsSelected"
-                                     Value="True">
-                                <Setter Property="Background"
-                                        Value="#285EAC"/>
+                            <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Foreground"
-                                        Value="#FFFFFF"/>
-                            </Trigger>
-
-                            <Trigger Property="IsEnabled"
-                                     Value="False">
-                                <Setter Property="Foreground"
-                                        Value="#65748A"/>
+                                        Value="{StaticResource AccentHover}"/>
                             </Trigger>
                         </Style.Triggers>
                     </Style>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- 滑块 -->
+        <Style TargetType="{x:Type Slider}">
+            <Setter Property="Foreground"
+                    Value="{StaticResource Accent}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,7,0,7"/>
+        </Style>
+
+        <!-- 列表 -->
+        <Style TargetType="{x:Type ListBox}">
+            <Setter Property="Background"
+                    Value="{StaticResource PaperBg}"/>
+            <Setter Property="Foreground"
+                    Value="{StaticResource TextSecondary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
         </Style>
 
     </Application.Resources>

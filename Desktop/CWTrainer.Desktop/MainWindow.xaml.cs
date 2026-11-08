@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -13,21 +14,24 @@ namespace CWTrainer.Desktop;
 public partial class MainWindow : Window
 {
     private const int BaudRate = 115200;
-    private const uint SndAsync = 0x0001;
-    private const uint SndNoDefault = 0x0002;
-    private const uint SndMemory = 0x0004;
-    private const uint SndLoop = 0x0008;
 
+    private readonly ObservableCollection<string> _events = new();
+    private readonly HashSet<string> _pressedPaddles = new();
+    private readonly StringBuilder _morseBuffer = new();
     private readonly object _receiveLock = new();
     private readonly StringBuilder _receiveBuffer = new();
-    private readonly ObservableCollection<string> _events = new();
-    private readonly HashSet<string> _pressedPaddles = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly DispatcherTimer _heartbeatTimer;
+    private readonly DispatcherTimer _characterTimer;
+    private readonly DispatcherTimer _wordTimer;
 
     private SerialPort? _port;
     private TaskCompletionSource<bool>? _handshakeSource;
+    private TaskCompletionSource<bool>? _byeSource;
+
     private bool _isConnected;
     private bool _suppressUiEvents;
+    private bool _isClosing;
     private string _outputMode = "BUZZER";
     private string _deviceMode = "IAMBIC_B";
 
@@ -35,23 +39,107 @@ public partial class MainWindow : Window
     private GCHandle _activeWavePin;
     private int _audioGeneration;
 
+    private static readonly Dictionary<string, char> MorseMap = new()
+    {
+        [".-"] = 'A',
+        ["-..."] = 'B',
+        ["-.-."] = 'C',
+        ["-.."] = 'D',
+        ["."] = 'E',
+        ["..-."] = 'F',
+        ["--."] = 'G',
+        ["...."] = 'H',
+        [".."] = 'I',
+        [".---"] = 'J',
+        ["-.-"] = 'K',
+        [".-.."] = 'L',
+        ["--"] = 'M',
+        ["-."] = 'N',
+        ["---"] = 'O',
+        [".--."] = 'P',
+        ["--.-"] = 'Q',
+        [".-."] = 'R',
+        ["..."] = 'S',
+        ["-"] = 'T',
+        ["..-"] = 'U',
+        ["...-"] = 'V',
+        [".--"] = 'W',
+        ["-..-"] = 'X',
+        ["-.--"] = 'Y',
+        ["--.."] = 'Z',
+
+        ["-----"] = '0',
+        [".----"] = '1',
+        ["..---"] = '2',
+        ["...--"] = '3',
+        ["....-"] = '4',
+        ["....."] = '5',
+        ["-...."] = '6',
+        ["--..."] = '7',
+        ["---.."] = '8',
+        ["----."] = '9',
+
+        [".-.-.-"] = '.',
+        ["--..--"] = ',',
+        ["..--.."] = '?',
+        [".----."] = '\'',
+        ["-.-.--"] = '!',
+        ["-..-."] = '/',
+        ["-.--."] = '(',
+        ["-.--.-"] = ')',
+        [".-..."] = '&',
+        ["---..."] = ':',
+        ["-.-.-."] = ';',
+        ["-...-"] = '=',
+        [".-.-."] = '+',
+        ["-....-"] = '-',
+        ["..--.-"] = '_',
+        [".-..-."] = '"',
+        ["...-..-"] = '$',
+        [".--.-."] = '@'
+    };
+
     public MainWindow()
     {
         InitializeComponent();
+
         EventList.ItemsSource = _events;
+
         OutputCombo.SelectedIndex = 0;
         ModeCombo.SelectedIndex = 2;
-        RefreshPorts();
-        UpdateSliderLabels();
-        SetConnectionUi(false, null);
 
         _heartbeatTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(1500)
         };
         _heartbeatTimer.Tick += (_, _) => SendCommand("PING");
+
+        _characterTimer = new DispatcherTimer();
+        _characterTimer.Tick += (_, _) => FinishMorseCharacter();
+
+        _wordTimer = new DispatcherTimer();
+        _wordTimer.Tick += (_, _) => FinishMorseWord();
+
+        RefreshPorts();
+        UpdateSliderLabels();
+        SetConnectionUi(false, null);
     }
 
+    // ---------- 标题栏 ----------
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == MouseButtonState.Pressed)
+            DragMove();
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+        => Close();
+
+    // ---------- 串口 ----------
 
     private void RefreshPorts()
     {
@@ -60,54 +148,46 @@ public partial class MainWindow : Window
 
         try
         {
-            foreach (string name in SerialPort.GetPortNames()
-                         .OrderBy(ParseComNumber))
-            {
+            foreach (string name in SerialPort.GetPortNames().OrderBy(ParseComNumber))
                 PortCombo.Items.Add(name);
-            }
         }
         catch (Exception ex)
         {
-            AddLog($"读取 COM 端口失败：{ex.Message}");
+            AddLog($"读取端口失败：{ex.Message}");
         }
 
-        // 保留之前选择的端口，但不再自动选择第一个。
-        if (previous is not null &&
-            PortCombo.Items.Contains(previous))
-        {
+        if (previous is not null && PortCombo.Items.Contains(previous))
             PortCombo.SelectedItem = previous;
-        }
         else
-        {
             PortCombo.SelectedIndex = -1;
-        }
 
-        AddLog($"发现 {PortCombo.Items.Count} 个串口，请选择 ESP32-S3 的 OTG 接口。");
+        AddLog($"发现 {PortCombo.Items.Count} 个串口。请选择 ESP32-S3 OTG 接口。");
     }
-
 
     private static int ParseComNumber(string name)
     {
         string digits = new(name.Where(char.IsDigit).ToArray());
-        return int.TryParse(digits, out int number) ? number : int.MaxValue;
+        return int.TryParse(digits, out int n) ? n : int.MaxValue;
     }
 
-    private void RefreshButton_Click(object sender, RoutedEventArgs e) => RefreshPorts();
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+        => RefreshPorts();
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
         if (_port?.IsOpen == true)
         {
-            DisconnectDevice("用户断开连接");
+            await DisconnectDeviceAsync("用户主动断开");
             return;
         }
 
         if (PortCombo.SelectedItem is not string portName)
         {
-            MessageBox.Show("没有可用的 COM 端口。请先连接 ESP32-S3 并刷新端口。", "CW Trainer",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("请先选择 ESP32-S3 的 OTG COM 端口。");
             return;
         }
+
+        ConnectButton.IsEnabled = false;
 
         try
         {
@@ -121,58 +201,54 @@ public partial class MainWindow : Window
                 WriteBufferSize = 2048,
                 DtrEnable = true,
                 RtsEnable = false,
-                Handshake = System.IO.Ports.Handshake.None
+                Handshake = Handshake.None
             };
 
             port.DataReceived += Port_DataReceived;
             port.Open();
             _port = port;
-            await Task.Delay(300);
-            port.DiscardInBuffer();
-            var handshake = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _handshakeSource = handshake;
-            AddLog($"已打开 {portName}，正在握手…");
-            ConnectButton.IsEnabled = false;
 
-            // The board may take a moment to enumerate after opening the native USB CDC port.
-            // Retry HELLO instead of assuming that opening COM means the trainer is ready.
+            lock (_receiveLock)
+                _receiveBuffer.Clear();
 
-            for (int attempt = 1;
-                 attempt <= 12 && !handshake.Task.IsCompleted;
-                 attempt++)
+            _handshakeSource = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            AddLog($"已打开 {portName}，正在连接设备…");
+
+            for (int i = 0; i < 12 && !_handshakeSource.Task.IsCompleted; i++)
             {
-                AddLog($"发送设备握手 HELLO ({attempt}/12)");
-
                 SendCommand("HELLO,1");
-
                 await Task.Delay(500);
             }
 
             Task completed = await Task.WhenAny(
-                handshake.Task,
-                Task.Delay(1000)
-            );
+                _handshakeSource.Task,
+                Task.Delay(1000));
 
-            if (completed != handshake.Task || !handshake.Task.Result)
+            if (completed != _handshakeSource.Task ||
+                !await _handshakeSource.Task)
             {
-                DisconnectDevice("握手超时");
+                await DisconnectDeviceAsync("设备握手超时");
                 MessageBox.Show(
-                    "串口已经打开，但没有收到 CW Trainer 的 READY 握手。\n\n请确认：\n1. 已经烧录 CW Trainer V2 固件；\n2. Arduino 串口监视器已经关闭；\n3. 选择的是开发板运行时的 COM 端口；\n4. USB 数据线没有松动。",
-                    "设备未响应", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "没有收到设备 READY 握手。\n请确认 OTG 接口、固件和 COM 端口。",
+                    "连接失败",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
                 return;
             }
 
             _isConnected = true;
             SetConnectionUi(true, portName);
             _heartbeatTimer.Start();
+
             SendCommand("GET");
-            AddLog("设备握手成功。现在可以选择电脑发声。");
+            AddLog("设备连接成功。");
         }
         catch (Exception ex)
         {
-            DisconnectDevice("连接失败");
-            MessageBox.Show($"无法打开串口：{ex.Message}\n\n请关闭 Arduino 串口监视器等占用该 COM 口的程序。",
-                "串口连接失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            await DisconnectDeviceAsync("连接失败");
+            MessageBox.Show($"串口连接失败：{ex.Message}");
         }
         finally
         {
@@ -185,6 +261,7 @@ public partial class MainWindow : Window
         if (sender is not SerialPort port) return;
 
         string chunk;
+
         try
         {
             chunk = port.ReadExisting();
@@ -193,69 +270,79 @@ public partial class MainWindow : Window
         {
             _ = Dispatcher.BeginInvoke(new Action(() =>
             {
-                AddLog($"USB 串口接收异常：{ex.Message}");
+                AddLog($"USB 连接异常：{ex.Message}");
+                _ = DisconnectDeviceAsync("USB 连接中断，等待硬件蜂鸣器接管");
             }));
-
             return;
         }
 
         if (string.IsNullOrEmpty(chunk)) return;
 
-        List<string> completedLines = new();
+        List<string> lines = new();
+
         lock (_receiveLock)
         {
             _receiveBuffer.Append(chunk);
+
             while (true)
             {
-                int newline = _receiveBuffer.ToString().IndexOf('\n');
+                string all = _receiveBuffer.ToString();
+                int newline = all.IndexOf('\n');
                 if (newline < 0) break;
 
-                string line = _receiveBuffer.ToString(0, newline).Trim('\r', ' ', '\t');
+                string line = all[..newline].Trim('\r', ' ', '\t');
                 _receiveBuffer.Remove(0, newline + 1);
-                if (line.Length > 0) completedLines.Add(line);
+
+                if (line.Length > 0)
+                    lines.Add(line);
             }
 
-            // Guard against a corrupt or unterminated stream growing forever.
-            if (_receiveBuffer.Length > 2048) _receiveBuffer.Clear();
+            if (_receiveBuffer.Length > 2048)
+                _receiveBuffer.Clear();
         }
 
-        foreach (string line in completedLines)
-        {
+        foreach (string line in lines)
             _ = Dispatcher.BeginInvoke(new Action(() => ProcessDeviceLine(line)));
-        }
     }
 
     private void ProcessDeviceLine(string line)
     {
         if (line.StartsWith("READY,1,CWTRAINER,", StringComparison.Ordinal))
         {
-            _isConnected = true;
             _handshakeSource?.TrySetResult(true);
-            SetConnectionUi(true, _port?.PortName ?? "USB CDC");
-            AddLog($"设备已就绪：{line}");
+            _isConnected = true;
+            SetConnectionUi(true, _port?.PortName);
+            AddLog("设备已就绪。");
+            return;
+        }
+
+        if (line == "BYE,BUZZER")
+        {
+            _byeSource?.TrySetResult(true);
             return;
         }
 
         if (line.StartsWith("STATUS,", StringComparison.Ordinal))
         {
             ParseStatus(line);
-            AddLog(line);
             return;
         }
 
         string[] parts = line.Split(',');
+
         if (parts.Length >= 3 && parts[0] == "KEY")
         {
             string paddle = parts[1];
             bool pressed = parts[2] == "1";
-            string label = paddle == "DIT" ? "LEFT · DIT（点）" : "RIGHT · DAH（划）";
+
             if (pressed) _pressedPaddles.Add(paddle);
             else _pressedPaddles.Remove(paddle);
 
             KeyStateText.Text = _pressedPaddles.Count == 0
-                ? "等待电键输入…"
-                : string.Join("  +  ", _pressedPaddles.Select(p => p == "DIT" ? "LEFT · DIT" : "RIGHT · DAH"));
-            AddLog($"{label} {(pressed ? "按下" : "松开")}");
+                ? "等待输入"
+                : string.Join("  +  ", _pressedPaddles.Select(
+                    p => p == "DIT" ? "点 ·" : "划 —"));
+
             return;
         }
 
@@ -263,12 +350,13 @@ public partial class MainWindow : Window
         {
             bool isDit = parts[1] == "DIT";
             if (!uint.TryParse(parts[2], out uint durationUs)) return;
-            string symbol = isDit ? "·" : "—";
-            AppendPreview(symbol);
+
+            AppendMorseElement(isDit ? "." : "-");
 
             if (_outputMode is "PC" or "BOTH")
             {
-                int durationMs = Math.Clamp((int)Math.Round(durationUs / 1000.0), 1, 2000);
+                int durationMs = Math.Clamp(
+                    (int)Math.Round(durationUs / 1000.0), 1, 2000);
                 PlayComputerTone(durationMs);
             }
             return;
@@ -285,11 +373,13 @@ public partial class MainWindow : Window
         }
 
         if (line == "PONG") return;
+
         if (line.StartsWith("ACK,", StringComparison.Ordinal))
         {
             AddLog(line);
             return;
         }
+
         if (line.StartsWith("ERROR,", StringComparison.Ordinal))
         {
             AddLog("设备错误：" + line);
@@ -302,10 +392,12 @@ public partial class MainWindow : Window
     private void ParseStatus(string line)
     {
         string[] p = line.Split(',');
+
         for (int i = 1; i + 1 < p.Length; i += 2)
         {
             string key = p[i];
             string value = p[i + 1];
+
             if (key == "WPM" && int.TryParse(value, out int wpm))
             {
                 _suppressUiEvents = true;
@@ -325,9 +417,12 @@ public partial class MainWindow : Window
                 _suppressUiEvents = true;
                 SelectComboByTag(OutputCombo, value);
                 _suppressUiEvents = false;
-                if (value == "BUZZER") StopComputerTone();
+
+                if (value == "BUZZER")
+                    StopComputerTone();
             }
         }
+
         UpdateSliderLabels();
     }
 
@@ -335,87 +430,13 @@ public partial class MainWindow : Window
     {
         foreach (ComboBoxItem item in combo.Items)
         {
-            if (string.Equals(item.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(item.Tag?.ToString(), tag,
+                StringComparison.OrdinalIgnoreCase))
             {
                 combo.SelectedItem = item;
                 return;
             }
         }
-    }
-
-    private void OutputCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressUiEvents || OutputCombo.SelectedItem is not ComboBoxItem item) return;
-        string mode = item.Tag?.ToString() ?? "BUZZER";
-        _outputMode = mode;
-        if (_isConnected)
-        {
-            SendCommand($"SET,OUTPUT,{mode}");
-            if (mode == "BUZZER") StopComputerTone();
-            AddLog($"切换声音输出：{item.Content}");
-        }
-    }
-
-    private void ApplySettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (!_isConnected)
-        {
-            MessageBox.Show("请先连接练习器，再应用键控参数。", "尚未连接", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        int wpm = (int)WpmSlider.Value;
-        string mode = (ModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "IAMBIC_B";
-        SendCommand($"SET,WPM,{wpm}");
-        SendCommand($"SET,MODE,{mode}");
-        _deviceMode = mode;
-        AddLog($"应用设置：{wpm} WPM / {mode}");
-    }
-
-    private void WpmSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (WpmValueText is not null) WpmValueText.Text = $"{(int)WpmSlider.Value} WPM";
-    }
-
-    private void ToneSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (ToneValueText is not null) ToneValueText.Text = $"{(int)ToneSlider.Value} Hz";
-    }
-
-    private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (VolumeValueText is not null) VolumeValueText.Text = $"{(int)VolumeSlider.Value}%";
-    }
-
-    private void UpdateSliderLabels()
-    {
-        WpmValueText.Text = $"{(int)WpmSlider.Value} WPM";
-        ToneValueText.Text = $"{(int)ToneSlider.Value} Hz";
-        VolumeValueText.Text = $"{(int)VolumeSlider.Value}%";
-    }
-
-    private void TestToneButton_Click(object sender, RoutedEventArgs e) => PlayComputerTone(350);
-
-    private void AppendPreview(string symbol)
-    {
-        string current = PreviewText.Text == "等待发送…" ? string.Empty : PreviewText.Text;
-        current += symbol + " ";
-        if (current.Length > 240) current = current[^240..];
-        PreviewText.Text = current;
-    }
-
-    private void ClearPreviewButton_Click(object sender, RoutedEventArgs e)
-    {
-        PreviewText.Text = "等待发送…";
-        _pressedPaddles.Clear();
-        KeyStateText.Text = "等待电键输入…";
-    }
-
-    private void AddLog(string message)
-    {
-        string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-        _events.Insert(0, $"{timestamp}  {message}");
-        while (_events.Count > 100) _events.RemoveAt(_events.Count - 1);
     }
 
     private void SendCommand(string command)
@@ -431,35 +452,45 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetConnectionUi(bool connected, string? portName)
-    {
-        ConnectionDot.Fill = connected ? new SolidColorBrush(Color.FromRgb(69, 194, 133)) : new SolidColorBrush(Color.FromRgb(212, 155, 69));
-        ConnectionText.Text = connected ? $"已连接 · {portName}" : "未连接";
-        ConnectButton.Content = connected ? "断开连接" : "连接练习器";
-        DeviceInfoText.Text = connected
-            ? "设备握手成功。现在可以安全切换到电脑软件发声。"
-            : "连接设备后可切换电脑发声、设置速度和键控模式。";
-        OutputCombo.IsEnabled = connected;
-        ModeCombo.IsEnabled = connected;
-        WpmSlider.IsEnabled = connected;
-        ApplySettingsButton.IsEnabled = connected;
-    }
+    // ---------- 断开与安全接管 ----------
 
-    private void DisconnectDevice(string reason)
+    private async Task DisconnectDeviceAsync(string reason)
     {
         _heartbeatTimer.Stop();
-        try
+
+        if (_port?.IsOpen == true && _isConnected)
         {
-            if (_port?.IsOpen == true)
+            try
             {
-                // Explicitly restore the physical buzzer before closing. The
-                // firmware also falls back to BUZZER after heartbeat timeout.
-                _port.Write("SET,OUTPUT,BUZZER\n");
-                _port.BaseStream.Flush();
-                Thread.Sleep(40);
+                _byeSource = new(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+
+                SendCommand("BYE");
+
+                // 等待固件明确回复已经切回实体蜂鸣器。
+                Task completed = await Task.WhenAny(
+                    _byeSource.Task,
+                    Task.Delay(700));
+
+                if (completed == _byeSource.Task && _byeSource.Task.Result)
+                    AddLog("实体蜂鸣器已接管。");
+                else
+                    AddLog("未收到交接确认，将由固件心跳超时保护接管。");
+            }
+            catch
+            {
+                AddLog("串口已中断，依靠固件心跳保护接管。");
             }
         }
-        catch { /* closing a vanished USB device is expected to fail sometimes */ }
+
+        ClosePortAndReset(reason);
+    }
+
+    private void ClosePortAndReset(string reason)
+    {
+        _heartbeatTimer.Stop();
+        _characterTimer.Stop();
+        _wordTimer.Stop();
 
         try
         {
@@ -474,52 +505,251 @@ public partial class MainWindow : Window
 
         _port = null;
         _isConnected = false;
+
         _handshakeSource?.TrySetResult(false);
         _handshakeSource = null;
+        _byeSource = null;
+
         _pressedPaddles.Clear();
-        KeyStateText.Text = "等待电键输入…";
+        KeyStateText.Text = "等待输入";
+
         StopComputerTone();
+
         _outputMode = "BUZZER";
         _suppressUiEvents = true;
         OutputCombo.SelectedIndex = 0;
         _suppressUiEvents = false;
+
         SetConnectionUi(false, null);
-        if (!string.IsNullOrWhiteSpace(reason)) AddLog(reason);
+
+        if (!string.IsNullOrWhiteSpace(reason))
+            AddLog(reason);
     }
 
-    // ---------------- Windows built-in audio (winmm PlaySound) ----------------
-    // No NAudio or other audio NuGet package is needed. The software creates
-    // small PCM WAV buffers and asks Windows to play them asynchronously.
+    private void SetConnectionUi(bool connected, string? portName)
+    {
+        ConnectionDot.Fill = connected
+            ? new SolidColorBrush(Color.FromRgb(78, 142, 105))
+            : new SolidColorBrush(Color.FromRgb(184, 153, 105));
+
+        ConnectionText.Text = connected
+            ? $"已连接 · {portName}"
+            : "尚未连接";
+
+        ConnectButton.Content = connected ? "断开设备" : "连接设备";
+
+        DeviceInfoText.Text = connected
+            ? "设备已就绪，电脑音频与实体蜂鸣器可切换。"
+            : "请连接 ESP32-S3 的 USB OTG 接口。";
+
+        OutputCombo.IsEnabled = connected;
+        ModeCombo.IsEnabled = connected;
+        WpmSlider.IsEnabled = connected;
+        ApplySettingsButton.IsEnabled = connected;
+    }
+
+    // ---------- 输出与设置 ----------
+
+    private void OutputCombo_SelectionChanged(
+        object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressUiEvents ||
+            OutputCombo.SelectedItem is not ComboBoxItem item)
+            return;
+
+        string mode = item.Tag?.ToString() ?? "BUZZER";
+        _outputMode = mode;
+
+        if (_isConnected)
+        {
+            SendCommand($"SET,OUTPUT,{mode}");
+
+            if (mode == "BUZZER")
+                StopComputerTone();
+
+            AddLog($"声音输出：{item.Content}");
+        }
+    }
+
+    private void ApplySettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected)
+        {
+            MessageBox.Show("请先连接设备。");
+            return;
+        }
+
+        int wpm = (int)WpmSlider.Value;
+        string mode = (ModeCombo.SelectedItem as ComboBoxItem)?
+            .Tag?.ToString() ?? "IAMBIC_B";
+
+        SendCommand($"SET,WPM,{wpm}");
+        SendCommand($"SET,MODE,{mode}");
+
+        _deviceMode = mode;
+        AddLog($"设置已发送：{wpm} WPM / {mode}");
+    }
+
+    private void WpmSlider_ValueChanged(
+        object sender, RoutedPropertyChangedEventArgs<double> e)
+        => WpmValueText.Text = $"{(int)WpmSlider.Value} WPM";
+
+    private void ToneSlider_ValueChanged(
+        object sender, RoutedPropertyChangedEventArgs<double> e)
+        => ToneValueText.Text = $"{(int)ToneSlider.Value} Hz";
+
+    private void VolumeSlider_ValueChanged(
+        object sender, RoutedPropertyChangedEventArgs<double> e)
+        => VolumeValueText.Text = $"{(int)VolumeSlider.Value}%";
+
+    private void UpdateSliderLabels()
+    {
+        WpmValueText.Text = $"{(int)WpmSlider.Value} WPM";
+        ToneValueText.Text = $"{(int)ToneSlider.Value} Hz";
+        VolumeValueText.Text = $"{(int)VolumeSlider.Value}%";
+    }
+
+    // ---------- 摩斯码解码 ----------
+
+    private void AppendMorseElement(string element)
+    {
+        _morseBuffer.Append(element);
+
+        string visual = element == "." ? "·" : "—";
+        PreviewText.Text = PreviewText.Text == "等待输入"
+            ? visual
+            : PreviewText.Text + " " + visual;
+
+        int ditMs = (int)(1200.0 / Math.Max(5, WpmSlider.Value));
+
+        _characterTimer.Stop();
+        _wordTimer.Stop();
+
+        _characterTimer.Interval = TimeSpan.FromMilliseconds(ditMs * 3);
+        _wordTimer.Interval = TimeSpan.FromMilliseconds(ditMs * 7);
+
+        _characterTimer.Start();
+        _wordTimer.Start();
+    }
+
+    private void FinishMorseCharacter()
+    {
+        _characterTimer.Stop();
+
+        if (_morseBuffer.Length == 0) return;
+
+        string code = _morseBuffer.ToString();
+        _morseBuffer.Clear();
+
+        if (MorseMap.TryGetValue(code, out char decoded))
+        {
+            DecodedText.Text += decoded;
+
+            if (DecodedText.Text.Length > 2000)
+                DecodedText.Text = DecodedText.Text[^2000..];
+        }
+        else
+        {
+            DecodedText.Text += "�";
+        }
+    }
+
+    private void FinishMorseWord()
+    {
+        _wordTimer.Stop();
+
+        if (_morseBuffer.Length > 0)
+            FinishMorseCharacter();
+
+        if (DecodedText.Text.Length > 0 &&
+            !DecodedText.Text.EndsWith(' '))
+        {
+            DecodedText.Text += " ";
+        }
+    }
+
+    private void ClearPreviewButton_Click(object sender, RoutedEventArgs e)
+    {
+        _characterTimer.Stop();
+        _wordTimer.Stop();
+        _morseBuffer.Clear();
+
+        PreviewText.Text = "等待输入";
+        DecodedText.Text = "";
+        _pressedPaddles.Clear();
+        KeyStateText.Text = "等待输入";
+    }
+
+    private void CopyTextButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(DecodedText.Text))
+        {
+            Clipboard.SetText(DecodedText.Text);
+            AddLog("已复制抄收文本。");
+        }
+    }
+
+    // ---------- 事件日志 ----------
+
+    private void AddLog(string message)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(new Action(() => AddLog(message)));
+            return;
+        }
+
+        _events.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
+
+        while (_events.Count > 100)
+            _events.RemoveAt(_events.Count - 1);
+    }
+
+    // ---------- 电脑音频 ----------
+
+    private const uint SndAsync = 0x0001;
+    private const uint SndNoDefault = 0x0002;
+    private const uint SndMemory = 0x0004;
+    private const uint SndLoop = 0x0008;
 
     [DllImport("winmm.dll", EntryPoint = "PlaySoundW", ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool NativePlaySound(IntPtr sound, IntPtr module, uint flags);
+    private static extern bool NativePlaySound(
+        IntPtr sound, IntPtr module, uint flags);
+
+    private void TestToneButton_Click(object sender, RoutedEventArgs e)
+        => PlayComputerTone(350);
 
     private void PlayComputerTone(int durationMs)
     {
         int volume = (int)VolumeSlider.Value;
         if (volume <= 0) return;
+
         StopComputerTone();
 
-        byte[] wav = CreateToneWave(durationMs, (int)ToneSlider.Value, volume, loopable: false);
+        byte[] wav = CreateToneWave(
+            durationMs, (int)ToneSlider.Value, volume);
+
         _activeWave = wav;
         _activeWavePin = GCHandle.Alloc(wav, GCHandleType.Pinned);
-        bool played = NativePlaySound(_activeWavePin.AddrOfPinnedObject(), IntPtr.Zero,
-            SndAsync | SndMemory | SndNoDefault);
 
-        if (!played)
+        if (!NativePlaySound(
+            _activeWavePin.AddrOfPinnedObject(),
+            IntPtr.Zero,
+            SndAsync | SndMemory | SndNoDefault))
         {
-            ReleaseAudioBuffer(stopPlayback: true);
-            AddLog("Windows 音频播放失败，请检查默认音频输出设备。");
+            ReleaseAudioBuffer(true);
+            AddLog("电脑音频播放失败。");
             return;
         }
 
         int generation = ++_audioGeneration;
-        _ = Task.Delay(durationMs + 300).ContinueWith(_ =>
+
+        _ = Task.Delay(durationMs + 200).ContinueWith(_ =>
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (generation == _audioGeneration)
-                    ReleaseAudioBuffer(stopPlayback: false);
+                    ReleaseAudioBuffer(false);
             })));
     }
 
@@ -527,23 +757,25 @@ public partial class MainWindow : Window
     {
         int volume = (int)VolumeSlider.Value;
         if (volume <= 0) return;
+
         StopComputerTone();
-        byte[] wav = CreateToneWave(1000, (int)ToneSlider.Value, volume, loopable: true);
+
+        byte[] wav = CreateToneWave(
+            1000, (int)ToneSlider.Value, volume);
+
         _activeWave = wav;
         _activeWavePin = GCHandle.Alloc(wav, GCHandleType.Pinned);
-        bool played = NativePlaySound(_activeWavePin.AddrOfPinnedObject(), IntPtr.Zero,
+
+        NativePlaySound(
+            _activeWavePin.AddrOfPinnedObject(),
+            IntPtr.Zero,
             SndAsync | SndMemory | SndLoop | SndNoDefault);
-        if (!played)
-        {
-            ReleaseAudioBuffer(stopPlayback: true);
-            AddLog("Windows 连续音频播放失败。");
-        }
     }
 
     private void StopComputerTone()
     {
         _audioGeneration++;
-        ReleaseAudioBuffer(stopPlayback: true);
+        ReleaseAudioBuffer(true);
     }
 
     private void ReleaseAudioBuffer(bool stopPlayback)
@@ -551,55 +783,89 @@ public partial class MainWindow : Window
         if (stopPlayback)
             NativePlaySound(IntPtr.Zero, IntPtr.Zero, 0);
 
-        if (_activeWavePin.IsAllocated) _activeWavePin.Free();
+        if (_activeWavePin.IsAllocated)
+            _activeWavePin.Free();
+
         _activeWave = null;
     }
 
-    private static byte[] CreateToneWave(int durationMs, int frequencyHz, int volumePercent, bool loopable)
+    private static byte[] CreateToneWave(
+        int durationMs, int frequencyHz, int volumePercent)
     {
         const int sampleRate = 44100;
         const short channels = 1;
-        const short bitsPerSample = 16;
+        const short bits = 16;
+
         int sampleCount = Math.Max(1, sampleRate * durationMs / 1000);
-        int dataBytes = sampleCount * (bitsPerSample / 8);
+        int dataBytes = sampleCount * 2;
+
         byte[] wav = new byte[44 + dataBytes];
 
         Encoding.ASCII.GetBytes("RIFF").CopyTo(wav, 0);
-        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(4, 4), 36 + dataBytes);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            wav.AsSpan(4, 4), 36 + dataBytes);
+
         Encoding.ASCII.GetBytes("WAVE").CopyTo(wav, 8);
         Encoding.ASCII.GetBytes("fmt ").CopyTo(wav, 12);
+
         BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(16, 4), 16);
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(20, 2), 1); // PCM
+        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(20, 2), 1);
         BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(22, 2), channels);
         BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(24, 4), sampleRate);
-        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(28, 4), sampleRate * channels * bitsPerSample / 8);
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(32, 2), (short)(channels * bitsPerSample / 8));
-        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(34, 2), bitsPerSample);
+        BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(28, 4), sampleRate * 2);
+        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(32, 2), 2);
+        BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(34, 2), bits);
+
         Encoding.ASCII.GetBytes("data").CopyTo(wav, 36);
         BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(40, 4), dataBytes);
 
-        double amplitude = Math.Clamp(volumePercent, 0, 100) / 100.0 * 0.48;
-        int fadeSamples = Math.Min(sampleRate / 250, sampleCount / 2); // 4 ms fade
-        int safeFrequency = Math.Clamp(frequencyHz, 100, 3000);
+        double amplitude = Math.Clamp(volumePercent, 0, 100) / 100.0 * 0.45;
+        int frequency = Math.Clamp(frequencyHz, 100, 3000);
+        int fade = Math.Min(sampleRate / 250, sampleCount / 2);
 
         for (int i = 0; i < sampleCount; i++)
         {
-            double envelope = 1.0;
-            if (fadeSamples > 0 && i < fadeSamples)
-                envelope = i / (double)fadeSamples;
-            if (fadeSamples > 0 && i >= sampleCount - fadeSamples)
-                envelope = Math.Min(envelope, (sampleCount - 1 - i) / (double)fadeSamples);
+            double envelope = 1;
 
-            double sample = Math.Sin(2.0 * Math.PI * safeFrequency * i / sampleRate) * amplitude * envelope;
-            short pcm = (short)Math.Clamp((int)Math.Round(sample * short.MaxValue), short.MinValue, short.MaxValue);
-            BinaryPrimitives.WriteInt16LittleEndian(wav.AsSpan(44 + i * 2, 2), pcm);
+            if (fade > 0 && i < fade)
+                envelope = i / (double)fade;
+
+            if (fade > 0 && i >= sampleCount - fade)
+                envelope = Math.Min(envelope,
+                    (sampleCount - 1 - i) / (double)fade);
+
+            double sample = Math.Sin(
+                2 * Math.PI * frequency * i / sampleRate)
+                * amplitude * envelope;
+
+            short pcm = (short)Math.Clamp(
+                (int)(sample * short.MaxValue),
+                short.MinValue, short.MaxValue);
+
+            BinaryPrimitives.WriteInt16LittleEndian(
+                wav.AsSpan(44 + i * 2, 2), pcm);
         }
 
         return wav;
     }
 
-    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    // ---------- 窗口关闭 ----------
+
+    private void Window_Closing(
+        object? sender,
+        System.ComponentModel.CancelEventArgs e)
     {
-        DisconnectDevice("应用程序关闭");
+        _isClosing = true;
+
+        // 关闭窗口时不阻塞等待 UI 回调。
+        // BYE 尝试发送；若 USB 已断开，固件心跳超时会兜底。
+        try
+        {
+            if (_port?.IsOpen == true && _isConnected)
+                _port.Write("BYE\n");
+        }
+        catch { }
+
+        ClosePortAndReset("应用程序关闭");
     }
 }
