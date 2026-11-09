@@ -44,6 +44,7 @@ public sealed class AudioOutput : IDisposable
     private IntPtr _handle = IntPtr.Zero;
     private int _deviceIndex = -1;
     private long _lastPlayMs;
+    private bool _loopActive;
 
     public AudioOutput(Action<string> log)
     {
@@ -139,6 +140,31 @@ public sealed class AudioOutput : IDisposable
             // 0.5 秒无缝循环，避免缓冲区接缝产生爆音
             IntPtr data = BuildPcm(500, frequencyHz, volumePercent, loop: true, out int length);
             WriteLocked(data, length, loop: true);
+            _loopActive = true;
+            _lastPlayMs = Environment.TickCount64;
+        }
+    }
+
+    /// <summary>
+    /// 通联模式的接收机底噪：一段循环播放的带限白噪声。
+    /// 用一阶低通把刺耳的"沙沙"压成更接近短波接收机的"嘶嘶"。
+    /// </summary>
+    public void StartNoise(int volumePercent)
+    {
+        if (volumePercent <= 0)
+            return;
+
+        lock (_lock)
+        {
+            if (!EnsureOpenLocked())
+                return;
+
+            waveOutReset(_handle);
+            SweepLocked();
+
+            IntPtr data = BuildNoisePcm(1500, volumePercent, out int length);
+            WriteLocked(data, length, loop: true);
+            _loopActive = true;
             _lastPlayMs = Environment.TickCount64;
         }
     }
@@ -153,6 +179,7 @@ public sealed class AudioOutput : IDisposable
 
             waveOutReset(_handle);
             SweepLocked();
+            _loopActive = false;
         }
     }
 
@@ -173,6 +200,9 @@ public sealed class AudioOutput : IDisposable
         lock (_lock)
         {
             if (_handle == IntPtr.Zero)
+                return;
+
+            if (_loopActive)
                 return;
 
             if (Environment.TickCount64 - _lastPlayMs < IdleCloseMs)
@@ -341,6 +371,35 @@ public sealed class AudioOutput : IDisposable
             }
 
             double value = Math.Sin(step * i) * amplitude * envelope;
+            samples[i] = (short)Math.Clamp((int)(value * short.MaxValue),
+                                           short.MinValue, short.MaxValue);
+        }
+
+        Marshal.Copy(samples, 0, data, sampleCount);
+        return data;
+    }
+
+    private static readonly Random NoiseRandom = new();
+
+    /// <summary>生成一段可无缝循环的带限白噪声。</summary>
+    private static IntPtr BuildNoisePcm(int durationMs, int volumePercent, out int length)
+    {
+        int sampleCount = SampleRate * durationMs / 1000;
+        length = sampleCount * 2;
+
+        IntPtr data = Marshal.AllocHGlobal(length);
+
+        double amplitude = Math.Clamp(volumePercent, 0, 100) / 100.0 * 0.30;
+        double lowPass = 0;
+
+        var samples = new short[sampleCount];
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            double white = NoiseRandom.NextDouble() * 2 - 1;
+            lowPass += (white - lowPass) * 0.28;          // 一阶低通，削掉高频毛刺
+
+            double value = lowPass * amplitude * 1.6;
             samples[i] = (short)Math.Clamp((int)(value * short.MaxValue),
                                            short.MinValue, short.MaxValue);
         }

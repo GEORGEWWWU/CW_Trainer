@@ -127,6 +127,9 @@ public partial class MainWindow : Window
             _audio = new AudioOutput(AddLog);
             RefreshAudioDevices();
 
+            stage = "初始化通联模式";
+            InitQso();
+
             stage = "更新数值标签";
             UpdateSliderLabels();
 

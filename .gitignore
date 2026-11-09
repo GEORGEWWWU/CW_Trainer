@@ -10,3 +10,7 @@ dist/
 # 聊天/工具产生的临时文件
 .workbuddy/ui/*.png
 .workbuddy/ui/check-*.png
+
+# 构建产物
+bin/
+obj/

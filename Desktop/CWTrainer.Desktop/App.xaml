@@ -377,6 +377,21 @@
             <Setter Property="Padding" Value="3"/>
         </Style>
 
+
+        <!-- 顶栏用的紧凑分段控件 -->
+        <Style x:Key="TopSegmentRadio" TargetType="RadioButton" BasedOn="{StaticResource SegmentRadio}">
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Padding" Value="12,0"/>
+        </Style>
+
+        <!-- 波段按钮：三列网格里的小块 -->
+        <Style x:Key="BandButton" TargetType="RadioButton" BasedOn="{StaticResource SegmentRadio}">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
         <!-- ============ 下拉框 ============ -->
         <Style x:Key="ComboItem" TargetType="ComboBoxItem">
             <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>

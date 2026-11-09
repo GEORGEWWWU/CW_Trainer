@@ -78,10 +78,25 @@
                             Background="{DynamicResource Hairline}"
                             Margin="14,0"/>
 
-                    <TextBlock Text="摩斯电码练习器"
-                               FontSize="11.5"
-                               Foreground="{DynamicResource Ink3}"
-                               VerticalAlignment="Center"/>
+                    <Border Style="{StaticResource SegmentBar}"
+                            Padding="3"
+                            VerticalAlignment="Center">
+                        <UniformGrid Columns="2" Width="124">
+                            <RadioButton x:Name="PracticeModeRadio"
+                                         Content="练习"
+                                         Tag="Practice"
+                                         GroupName="AppMode"
+                                         IsChecked="True"
+                                         Style="{StaticResource TopSegmentRadio}"
+                                         Checked="AppModeSegment_Checked"/>
+                            <RadioButton x:Name="QsoModeRadio"
+                                         Content="通联"
+                                         Tag="Qso"
+                                         GroupName="AppMode"
+                                         Style="{StaticResource TopSegmentRadio}"
+                                         Checked="AppModeSegment_Checked"/>
+                        </UniformGrid>
+                    </Border>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal"
@@ -172,8 +187,8 @@
                 </StackPanel>
             </Grid>
 
-            <!-- ==================== 主体 ==================== -->
-            <Grid Grid.Row="1" Margin="32,4,32,28">
+            <!-- ==================== 练习模式 ==================== -->
+            <Grid x:Name="PracticeView" Grid.Row="1" Margin="32,4,32,28">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="372"/>
                     <ColumnDefinition Width="24"/>
@@ -673,6 +688,400 @@
                                      Margin="0,8,0,0"
                                      FontFamily="{StaticResource MonoFont}"
                                      FontSize="11.5"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- ==================== 通联模式 ==================== -->
+            <Grid x:Name="QsoView" Grid.Row="1" Margin="32,4,32,28" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="300"/>
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 接收频率 -->
+                    <Border Grid.Row="0"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="24,16,24,16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="接收频率"
+                                           Style="{StaticResource CardLabel}"
+                                           VerticalAlignment="Center"/>
+
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center">
+                                    <TextBlock x:Name="QsoTunedCallsign"
+                                               Text=""
+                                               FontSize="12"
+                                               Foreground="{DynamicResource Ink2}"/>
+                                    <TextBlock x:Name="QsoBandText"
+                                               Text="Band 20 m"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Accent}"
+                                               Margin="12,0,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Grid.Row="1"
+                                        Orientation="Horizontal"
+                                        Margin="0,2,0,0">
+                                <TextBlock x:Name="QsoFreqText"
+                                           Text="14.025.000"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="44"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Ink}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="MHz"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource Ink3}"
+                                           VerticalAlignment="Bottom"
+                                           Margin="10,0,0,9"/>
+                            </StackPanel>
+
+                            <Grid Grid.Row="2" Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0" Style="{StaticResource SegmentBar}">
+                                    <UniformGrid Columns="3" Width="162">
+                                        <RadioButton x:Name="QsoCwRadio"
+                                                     Content="CW" Tag="CW" GroupName="QsoMode"
+                                                     IsChecked="True"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoMode_Checked"/>
+                                        <RadioButton x:Name="QsoUsbRadio"
+                                                     Content="USB" Tag="USB" GroupName="QsoMode"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoMode_Checked"/>
+                                        <RadioButton x:Name="QsoLsbRadio"
+                                                     Content="LSB" Tag="LSB" GroupName="QsoMode"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoMode_Checked"/>
+                                    </UniformGrid>
+                                </Border>
+
+                                <Border Grid.Column="1"
+                                        Style="{StaticResource SegmentBar}"
+                                        Margin="10,0,0,0">
+                                    <UniformGrid Columns="3" Width="150">
+                                        <RadioButton Content="10 Hz" Tag="10" GroupName="QsoStep"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoStep_Checked"/>
+                                        <RadioButton Content="100 Hz" Tag="100" GroupName="QsoStep"
+                                                     IsChecked="True"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoStep_Checked"/>
+                                        <RadioButton Content="1 kHz" Tag="1000" GroupName="QsoStep"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoStep_Checked"/>
+                                    </UniformGrid>
+                                </Border>
+
+                                <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                    <Button Style="{StaticResource SurfaceButton}"
+                                            Width="46" Height="32" Padding="0"
+                                            Click="QsoTuneDown_Click"
+                                            ToolTip="下调频率"
+                                            AutomationProperties.Name="频率下调">
+                                        <Viewbox Width="14" Height="14">
+                                            <Path Style="{StaticResource IconStroke}"
+                                                  Data="M15,6 L9,12 L15,18"/>
+                                        </Viewbox>
+                                    </Button>
+                                    <Button Style="{StaticResource SurfaceButton}"
+                                            Width="46" Height="32" Padding="0"
+                                            Margin="6,0,0,0"
+                                            Click="QsoTuneUp_Click"
+                                            ToolTip="上调频率"
+                                            AutomationProperties.Name="频率上调">
+                                        <Viewbox Width="14" Height="14">
+                                            <Path Style="{StaticResource IconStroke}"
+                                                  Data="M9,6 L15,12 L9,18"/>
+                                        </Viewbox>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- S 表 -->
+                    <Border Grid.Row="2"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="24,14,24,14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="S 表"
+                                           Style="{StaticResource CardLabel}"
+                                           VerticalAlignment="Center"/>
+
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center">
+                                    <TextBlock x:Name="QsoDbmText"
+                                               Text="—"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource Ink2}"/>
+                                    <TextBlock Text="·" Foreground="{DynamicResource Ink3}" Margin="7,0"/>
+                                    <TextBlock x:Name="QsoSUnitText"
+                                               Text="S0"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Accent}"/>
+                                    <TextBlock Text="·" Foreground="{DynamicResource Ink3}" Margin="7,0"/>
+                                    <TextBlock x:Name="QsoMicrovoltText"
+                                               Text="—"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource Ink3}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid x:Name="SMeterHost"
+                                  Grid.Row="1"
+                                  Height="12"
+                                  Margin="0,10,0,0"
+                                  SizeChanged="SMeterHost_SizeChanged">
+                                <Border Background="{DynamicResource SurfaceSunken}" CornerRadius="3"/>
+                                <Border x:Name="SMeterFill"
+                                        Background="{DynamicResource Accent}"
+                                        CornerRadius="3"
+                                        HorizontalAlignment="Left"
+                                        Width="0"/>
+                            </Grid>
+
+                            <Canvas x:Name="SMeterTicks"
+                                    Grid.Row="2"
+                                    Height="16"
+                                    Margin="0,5,0,0"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 频谱 + 瀑布 -->
+                    <Border Grid.Row="4"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="20,14,20,10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="频谱 / 瀑布"
+                                           Style="{StaticResource CardLabel}"
+                                           VerticalAlignment="Center"/>
+
+                                <Border Style="{StaticResource SegmentBar}"
+                                        HorizontalAlignment="Right"
+                                        Padding="3">
+                                    <UniformGrid Columns="4" Width="188">
+                                        <RadioButton Content="10k" Tag="10" GroupName="QsoSpan"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoSpan_Checked"/>
+                                        <RadioButton Content="25k" Tag="25" GroupName="QsoSpan"
+                                                     IsChecked="True"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoSpan_Checked"/>
+                                        <RadioButton Content="50k" Tag="50" GroupName="QsoSpan"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoSpan_Checked"/>
+                                        <RadioButton Content="100k" Tag="100" GroupName="QsoSpan"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="QsoSpan_Checked"/>
+                                    </UniformGrid>
+                                </Border>
+                            </Grid>
+
+                            <Grid x:Name="ScopeHost"
+                                  Grid.Row="1"
+                                  Margin="0,8,0,0"
+                                  ClipToBounds="True"
+                                  Background="{DynamicResource SurfaceSunken}"
+                                  SizeChanged="ScopeHost_SizeChanged"
+                                  MouseWheel="Scope_MouseWheel"
+                                  MouseLeftButtonDown="Scope_MouseLeftButtonDown"
+                                  MouseMove="Scope_MouseMove"
+                                  MouseLeftButtonUp="Scope_MouseLeftButtonUp"
+                                  MouseLeave="Scope_MouseLeave">
+                                <Image x:Name="ScopeImage" Stretch="Fill"/>
+                                <Canvas x:Name="ScopeGridCanvas" IsHitTestVisible="False"/>
+                                <Rectangle x:Name="PassbandRect"
+                                           IsHitTestVisible="False"
+                                           Fill="#33FF5A1F"
+                                           VerticalAlignment="Stretch"/>
+
+                            </Grid>
+
+                            <Canvas x:Name="ScopeAxis"
+                                    Grid.Row="2"
+                                    Height="16"
+                                    Margin="0,5,0,0"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- 右列：波段 / 音频 / 信号 / 波段活动 -->
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="16,14,14,16">
+                        <StackPanel>
+                            <TextBlock Text="波段" Style="{StaticResource CardLabel}"/>
+                            <UniformGrid x:Name="BandGrid" Columns="3" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="2"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="16,14,14,16">
+                        <StackPanel>
+                            <Grid>
+                                <TextBlock Text="音频"
+                                           Style="{StaticResource CardLabel}"
+                                           VerticalAlignment="Center"/>
+
+                                <Border Style="{StaticResource SegmentBar}"
+                                        HorizontalAlignment="Right"
+                                        Padding="3">
+                                    <UniformGrid Columns="2" Width="104">
+                                        <RadioButton x:Name="NoiseOffRadio"
+                                                     Content="关" Tag="0" GroupName="Noise"
+                                                     IsChecked="True"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="NoiseSegment_Checked"/>
+                                        <RadioButton x:Name="NoiseOnRadio"
+                                                     Content="白噪声" Tag="1" GroupName="Noise"
+                                                     Style="{StaticResource TopSegmentRadio}"
+                                                     Checked="NoiseSegment_Checked"/>
+                                    </UniformGrid>
+                                </Border>
+                            </Grid>
+
+                            <Grid Margin="0,12,0,0">
+                                <TextBlock Text="音量" Style="{StaticResource CardLabel}"/>
+                                <TextBlock x:Name="NoiseVolumeText"
+                                           Text="25%"
+                                           Style="{StaticResource Hint}"
+                                           HorizontalAlignment="Right"/>
+                            </Grid>
+
+                            <Slider x:Name="NoiseVolumeSlider"
+                                    Minimum="0" Maximum="100" Value="25"
+                                    Margin="0,2,0,0"
+                                    ValueChanged="NoiseVolumeSlider_ValueChanged"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="4"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="16,14,14,16">
+                        <StackPanel>
+                            <TextBlock Text="信号" Style="{StaticResource CardLabel}"/>
+
+                            <TextBlock x:Name="QsoSignalCall"
+                                       Text="无信号"
+                                       FontSize="21"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Ink}"
+                                       Margin="0,10,0,0"/>
+
+                            <TextBlock x:Name="QsoSignalDetail"
+                                       Text="调谐频率或点击瀑布，寻找波段的活跃信号"
+                                       Style="{StaticResource Hint}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="18"
+                                       Margin="0,7,0,0"/>
+
+                            <Border Height="1"
+                                    Background="{DynamicResource Hairline}"
+                                    Margin="0,14,0,12"/>
+
+                            <Grid>
+                                <TextBlock Text="接收带宽" Style="{StaticResource Hint}"/>
+                                <TextBlock x:Name="QsoBandwidthText"
+                                           Text="500 Hz"
+                                           Style="{StaticResource Hint}"
+                                           HorizontalAlignment="Right"/>
+                            </Grid>
+                            <Grid Margin="0,6,0,0">
+                                <TextBlock Text="噪声底" Style="{StaticResource Hint}"/>
+                                <TextBlock x:Name="QsoNoiseText"
+                                           Text="—"
+                                           Style="{StaticResource Hint}"
+                                           HorizontalAlignment="Right"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 波段活动 -->
+                    <Border Grid.Row="6"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="16,14,14,14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="波段活动"
+                                       Style="{StaticResource CardLabel}"/>
+
+                            <ScrollViewer Grid.Row="1"
+                                          Margin="0,6,0,0"
+                                          VerticalScrollBarVisibility="Hidden"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="QsoActivityList"/>
+                            </ScrollViewer>
                         </Grid>
                     </Border>
                 </Grid>
