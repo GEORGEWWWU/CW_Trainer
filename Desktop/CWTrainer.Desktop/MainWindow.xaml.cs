@@ -67,6 +67,22 @@ public partial class MainWindow : Window
     /// <summary>串口已连上的端口名，用于“失联”时仍然显示它。</summary>
     private string? _connectedPort;
 
+    // ---------- 发送 ----------
+
+    /// <summary>单条 SEND,TEXT 的字符数。固件行缓冲 96 字节，留出前缀余量。</summary>
+    private const int TxChunkSize = 60;
+
+    /// <summary>固件发送队列容量，超出会被截断。</summary>
+    private const int TxMaxChars = 256;
+
+    private bool _txActive;
+    private int _txTotal;
+    private int _txRemaining;
+    private CancellationTokenSource? _txCts;
+    private DispatcherTimer? _txWatchdog;
+    private long _txLastSignalMs;
+
+
     private volatile bool _isConnected;
     private bool _suppressUiEvents;
 
@@ -429,6 +445,10 @@ public partial class MainWindow : Window
 
     private void ProcessDeviceLine(string line, long receivedAtMs)
     {
+        // 发送相关的回报先处理，避免被下面的通用 ACK 分支吞掉
+        if (HandleSendEvent(line))
+            return;
+
         if (line.StartsWith("READY,1,CWTRAINER,", StringComparison.Ordinal))
         {
             _handshakeSource?.TrySetResult(true);
@@ -470,7 +490,10 @@ public partial class MainWindow : Window
             // 固件在元素“开始”时上报，所以元素结束时刻 = 收到时刻 + 时长。
             long durationMs = (long)Math.Round(durationUs / 1000.0);
             long startMs = receivedAtMs;
-            FeedElement(isDit, durationUs, startMs, startMs + durationMs);
+
+            // 自己发出去的内容不喂给解码器，否则会混进抄收文本；但音频照常播放。
+            if (!_txActive)
+                FeedElement(isDit, durationUs, startMs, startMs + durationMs);
 
             if (_outputMode is "PC" or "BOTH")
                 PlayComputerTone(Math.Clamp((int)durationMs, 1, 2000));
@@ -759,6 +782,9 @@ public partial class MainWindow : Window
         StopDecodeTimer();
         StopComputerTone();
 
+        // 设备不再回应：正在进行的发送也不会有回报了，直接收尾
+        PostUi(EndSend);
+
         PostUi(() =>
         {
             SetConnectionUi(true, _connectedPort);
@@ -1009,6 +1035,9 @@ public partial class MainWindow : Window
 
     private void SetConnectionUi(bool connected, string? portName)
     {
+        if (!connected && _txActive)
+            EndSend();
+
         if (connected)
         {
             _connectedPort = portName ?? _connectedPort;
@@ -1063,6 +1092,8 @@ public partial class MainWindow : Window
         ModeIambicBRadio.IsEnabled = controllable;
 
         WpmSlider.IsEnabled = controllable;
+
+        UpdateTxUi();
     }
 
     // ---------- 声音输出 ----------
@@ -1247,6 +1278,258 @@ public partial class MainWindow : Window
 
         App.SetThemeMode(mode);
         AddLog($"外观：{radio.Content}");
+    }
+
+    // ---------- 发送 ----------
+
+    private void TxInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (TxCountText == null)
+            return;
+
+        int raw = TxInput.Text.Length;
+        string usable = MorseText.Normalize(TxInput.Text, out _);
+        TxCountText.Text = usable.Length == raw
+            ? $"{raw} 字符"
+            : $"{usable.Length} / {raw} 字符";
+    }
+
+    private void TxInput_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            e.Handled = true;
+            _ = StartSendAsync();
+        }
+    }
+
+    private async void SendButton_Click(object sender, RoutedEventArgs e)
+        => await StartSendAsync();
+
+    private void TxStopButton_Click(object sender, RoutedEventArgs e)
+        => StopSend("手动停止");
+
+    private async Task StartSendAsync()
+    {
+        if (!_isConnected)
+        {
+            AddLog("未连接设备，无法发送。");
+            return;
+        }
+
+        if (_txActive)
+            return;
+
+        string text = MorseText.Normalize(TxInput.Text, out List<char> dropped);
+
+        if (text.Length == 0)
+        {
+            TxStatusText.Text = "没有可发送的字符";
+            return;
+        }
+
+        if (dropped.Count > 0)
+            AddLog("已跳过不支持的字符：" + string.Join(' ', dropped));
+
+        // 固件队列 256 字符，超出的部分明确告知，而不是让它悄悄被 TRUNCATE
+        if (text.Length > TxMaxChars)
+        {
+            AddLog($"超出设备队列上限（{TxMaxChars} 字符），本次只发前 {TxMaxChars} 个。");
+            text = text[..TxMaxChars];
+        }
+
+        _txActive = true;
+        _txTotal = text.Length;
+        _txRemaining = text.Length;
+        _txCts = new CancellationTokenSource();
+        _txLastSignalMs = Environment.TickCount64;
+
+        UpdateTxUi();
+        StartTxWatchdog();
+
+        try
+        {
+            SendCommand("SEND,BEGIN");
+
+            foreach (string chunk in MorseText.Chunk(text, TxChunkSize))
+            {
+                if (_txCts.IsCancellationRequested)
+                    break;
+
+                SendCommand($"SEND,TEXT,{chunk}");
+                await Task.Delay(18, _txCts.Token);
+            }
+
+            if (!_txCts.IsCancellationRequested)
+            {
+                SendCommand("SEND,END");
+                AddLog($"开始发送 {text.Length} 个字符（{_pendingWpm} WPM）。");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户中途停止，StopSend 已经收尾
+        }
+        catch (Exception ex)
+        {
+            AddLog($"发送失败：{ex.Message}");
+            EndSend();
+        }
+    }
+
+    private void StopSend(string reason)
+    {
+        _txCts?.Cancel();
+
+        if (!_txActive)
+            return;
+
+        SendCommand("SEND,STOP");
+        AddLog($"已停止发送（{reason}）。");
+        EndSend();
+    }
+
+    private void EndSend()
+    {
+        _txActive = false;
+        _txCts?.Dispose();
+        _txCts = null;
+        _txTotal = 0;
+        _txRemaining = 0;
+
+        _txWatchdog?.Stop();
+
+        UpdateTxUi();
+    }
+
+    /// <summary>
+    /// 兜底：如果设备中途 disappear（拔线、复位），不会一直卡在"发送中"。
+    /// 正常发送时每个字符都会回一条 SENDING，所以这里的阈值可以放得比较宽。
+    /// </summary>
+    private void StartTxWatchdog()
+    {
+        _txWatchdog ??= new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+
+        _txWatchdog.Tick -= TxWatchdog_Tick;
+        _txWatchdog.Tick += TxWatchdog_Tick;
+        _txWatchdog.Start();
+    }
+
+    private void TxWatchdog_Tick(object? sender, EventArgs e)
+    {
+        if (!_txActive)
+        {
+            _txWatchdog?.Stop();
+            return;
+        }
+
+        int unitMs = (int)Math.Max(20, 1200.0 / Math.Clamp(_pendingWpm, 5, 60));
+        long limit = Math.Max(6000, unitMs * 40L);
+
+        if (Environment.TickCount64 - Volatile.Read(ref _txLastSignalMs) > limit)
+        {
+            AddLog("发送超时：设备长时间没有回报进度，已停止。");
+            EndSend();
+        }
+    }
+
+    private void UpdateTxUi()
+    {
+        if (SendButton == null)
+            return;
+
+        bool canSend = _isConnected && !_txActive;
+
+        SendButton.IsEnabled = canSend;
+        TxStopButton.IsEnabled = _isConnected && _txActive;
+        TxInput.IsEnabled = canSend;
+
+        if (_txActive)
+        {
+            int sent = Math.Clamp(_txTotal - _txRemaining, 0, _txTotal);
+            TxProgress.Maximum = Math.Max(1, _txTotal);
+            TxProgress.Value = sent;
+            TxStatusText.Text = _txTotal > 0
+                ? $"发送中 {sent} / {_txTotal} 字符"
+                : "发送中…";
+        }
+        else
+        {
+            TxProgress.Maximum = 1;
+            TxProgress.Value = 0;
+            TxStatusText.Text = string.Empty;
+        }
+    }
+
+    /// <summary>发送相关的设备回报。</summary>
+    private bool HandleSendEvent(string line)
+    {
+        if (line.StartsWith("ACK,SEND,", StringComparison.Ordinal))
+            return true;   // 每个分片都会 ACK，不写日志避免刷屏
+
+        if (line.StartsWith("SEND,START,", StringComparison.Ordinal))
+        {
+            if (int.TryParse(line[11..], out int total) && total > 0)
+            {
+                _txTotal = total;
+                _txRemaining = total;
+            }
+
+            Volatile.Write(ref _txLastSignalMs, Environment.TickCount64);
+            UpdateTxUi();
+            return true;
+        }
+
+        if (line.StartsWith("SENDING,", StringComparison.Ordinal))
+        {
+            if (int.TryParse(line[8..], out int remaining))
+                _txRemaining = Math.Max(0, remaining);
+
+            Volatile.Write(ref _txLastSignalMs, Environment.TickCount64);
+            PostUi(UpdateTxUi);
+            return true;
+        }
+
+        if (line == "SEND,DONE")
+        {
+            Volatile.Write(ref _txLastSignalMs, Environment.TickCount64);
+            AddLog("发送完成。");
+            PostUi(EndSend);
+            return true;
+        }
+
+        if (line.StartsWith("SEND,ABORTED,", StringComparison.Ordinal))
+        {
+            string reason = line[13..] switch
+            {
+                "PADDLE" => "手键打断",
+                "STOP" => "已停止",
+                "MODE" => "键控模式切换",
+                "HOST" => "上位机心跳中断",
+                _ => line[13..]
+            };
+
+            AddLog($"发送中止：{reason}。");
+            PostUi(EndSend);
+            return true;
+        }
+
+        if (line.StartsWith("WARN,CHAR,", StringComparison.Ordinal))
+        {
+            AddLog($"设备跳过了不支持的字符：{line[10..]}");
+            return true;
+        }
+
+        if (line == "ERROR,TX_FULL")
+        {
+            AddLog("设备发送缓冲区已满，本次发送被截断。");
+            return true;
+        }
+
+        return false;
     }
 
     // ---------- 电码表 ----------

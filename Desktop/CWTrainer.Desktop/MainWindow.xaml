@@ -4,8 +4,8 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="CW Trainer"
         Icon="Assets/app.ico"
-        Width="1200" Height="800"
-        MinWidth="900" MinHeight="600"
+        Width="1200" Height="860"
+        MinWidth="900" MinHeight="650"
         WindowStartupLocation="CenterScreen"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
@@ -38,7 +38,7 @@
     -->
     <Border BorderBrush="{DynamicResource Hairline}" BorderThickness="1">
     <Viewbox Stretch="Uniform" StretchDirection="Both">
-        <Grid Width="1200" Height="800" Background="{DynamicResource Surface}">
+        <Grid Width="1200" Height="860" Background="{DynamicResource Surface}">
 
             <Grid.RowDefinitions>
                 <RowDefinition Height="56"/>
@@ -409,7 +409,9 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="20"/>
-                        <RowDefinition Height="196"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="20"/>
+                        <RowDefinition Height="180"/>
                     </Grid.RowDefinitions>
 
                     <!-- 实时抄收 -->
@@ -542,8 +544,104 @@
                         </Grid>
                     </Border>
 
-                    <!-- 通信记录 -->
+                    <!-- 发送 -->
                     <Border Grid.Row="2"
+                            Background="{DynamicResource Paper}"
+                            CornerRadius="20"
+                            Padding="20,16,20,18">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="发送"
+                                           Style="{StaticResource CardLabel}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxCountText"
+                                           Text="0 字符"
+                                           Style="{StaticResource Hint}"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Grid Grid.Row="1" Margin="0,8,0,0">
+                                <TextBox x:Name="TxInput"
+                                         Style="{StaticResource InputBox}"
+                                         Height="66"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         TextChanged="TxInput_TextChanged"
+                                         PreviewKeyDown="TxInput_PreviewKeyDown"/>
+
+                                <TextBlock x:Name="TxPlaceholder"
+                                           Text="输入要发送的文字，Ctrl+Enter 发送"
+                                           FontSize="13.5"
+                                           Foreground="{DynamicResource Ink3}"
+                                           Margin="14,12,0,0"
+                                           IsHitTestVisible="False">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=TxInput}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+
+                            <Grid Grid.Row="2" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Button x:Name="SendButton"
+                                        Content="发送"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Height="38"
+                                        Padding="24,0"
+                                        Click="SendButton_Click"/>
+
+                                <Button x:Name="TxStopButton"
+                                        Grid.Column="1"
+                                        Content="停止"
+                                        Style="{StaticResource SurfaceButton}"
+                                        Height="38"
+                                        Padding="18,0"
+                                        Margin="8,0,0,0"
+                                        IsEnabled="False"
+                                        Click="TxStopButton_Click"/>
+
+                                <StackPanel Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Margin="18,0,0,0">
+                                    <ProgressBar x:Name="TxProgress"
+                                                 Style="{StaticResource ThinProgress}"
+                                                 Height="6"
+                                                 Minimum="0"
+                                                 Maximum="1"
+                                                 Value="0"/>
+                                    <TextBlock x:Name="TxStatusText"
+                                               Text=""
+                                               Style="{StaticResource Hint}"
+                                               Margin="0,7,0,0"
+                                               MinHeight="16"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- 通信记录 -->
+                    <Border Grid.Row="4"
                             Background="{DynamicResource Paper}"
                             CornerRadius="20"
                             Padding="20,18,20,14">

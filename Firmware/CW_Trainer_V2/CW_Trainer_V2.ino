@@ -18,9 +18,13 @@
     SET,OUTPUT,BUZZER|PC|BOTH                  SET,OUTPUT,BUZZER|PC|BOTH
     SET,WPM,5..60                              SET,WPM,5..60
     SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B        SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B
+    SEND,BEGIN                                 开始一个发送任务（清空队列）
+    SEND,TEXT,<ascii>                          追加文本，单行约 80 字节
+    SEND,END                                   文本给完，开始按当前 WPM 拍发
+    SEND,STOP                                  中止发送并清空队列
 
   Device events:                               设备上报事件：
-    READY,1,CWTRAINER,2.2.0                    READY,1,CWTRAINER,2.2.0
+    READY,1,CWTRAINER,3.0.0                    READY,1,CWTRAINER,3.0.0
     STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER  STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER
     KEY,DIT,1 / KEY,DIT,0                      KEY,DIT,1 / KEY,DIT,0
     KEY,DAH,1 / KEY,DAH,0                      KEY,DAH,1 / KEY,DAH,0
@@ -29,6 +33,11 @@
     TONE,ON / TONE,OFF    (straight-key mode)
     TONE,ON / TONE,OFF    （直键模式）
     ACK,... / PONG                             ACK,... / PONG
+    SEND,START,<n>                             开始拍发，n = 待发字符数
+    SENDING,<remaining>                        每发完一个字符上报剩余
+    SEND,DONE                                  队列发完
+    SEND,ABORTED,PADDLE|STOP|MODE              被手键 / 指令 / 模式切换中止
+    WARN,CHAR,<c>                              字符不在电码表里，已跳过
 
   Important:                                   重要说明：
   - The MCU remains responsible for keyer timing. The PC never schedules
@@ -49,6 +58,13 @@
   - While the lease is expired, nothing is written to USB at all, so a
     closed/unread CDC port can never block loop().
   - 租约失效期间完全不向 USB 写数据，关闭或无人读取的 CDC 端口不会阻塞 loop()。
+
+  V3.0 text sending:                              V3.0 文本发送：
+  - The host only supplies characters; this MCU still generates every element
+    and gap, so USB jitter can never reach the keying waveform.
+  - 上位机只提供字符，元素与间隔全部由本机生成，USB 抖动不会影响拍发波形。
+  - Queue holds 256 characters; a paddle press aborts sending immediately.
+  - 队列 256 字符；按任意桨立即中止发送，手动键控优先级最高。
 
   V2.2 settings:                                 V2.2 参数持久化：
   - WPM and keyer mode are stored in NVS (namespace "cwtrainer") and restored
@@ -195,7 +211,11 @@ static bool hardwareOutputEnabled() {
   return mode == OUTPUT_BUZZER || mode == OUTPUT_BOTH;
 }
 
+// 定义在发送引擎里（这里只前置声明，避免静态变量顺序问题）
+static bool txMarkActive();
+
 static bool currentMarkActive() {
+  if (txMarkActive()) return true;                 // 自动拍发
   if (keyerMode == MODE_STRAIGHT) return straightToneActive;
   return keyerState == STATE_MARK;
 }
@@ -414,6 +434,222 @@ static void updatePaddleKeyer(uint32_t nowUs, bool ditChanged, bool dahChanged) 
   }
 }
 
+// ---------------- Morse table (TX) ----------------
+struct MorseRow {
+  char symbol;
+  const char* code;
+};
+
+static const MorseRow MORSE_TABLE[] = {
+  {'A', ".-"},     {'B', "-..."},   {'C', "-.-."},   {'D', "-.."},
+  {'E', "."},      {'F', "..-."},   {'G', "--."},    {'H', "...."},
+  {'I', ".."},     {'J', ".---"},   {'K', "-.-"},    {'L', ".-.."},
+  {'M', "--"},     {'N', "-."},     {'O', "---"},    {'P', ".--."},
+  {'Q', "--.-"},   {'R', ".-."},    {'S', "..."},    {'T', "-"},
+  {'U', "..-"},    {'V', "...-"},   {'W', ".--"},    {'X', "-..-"},
+  {'Y', "-.--"},   {'Z', "--.."},
+  {'0', "-----"},  {'1', ".----"},  {'2', "..---"},  {'3', "...--"},
+  {'4', "....-"},  {'5', "....."},  {'6', "-...."},  {'7', "--..."},
+  {'8', "---.."},  {'9', "----."},
+  {'.', ".-.-.-"}, {',', "--..--"}, {'?', "..--.."}, {'\'', ".----."},
+  {'!', "-.-.--"}, {'/', "-..-."},  {'(', "-.--."},  {')', "-.--.-"},
+  {'&', ".-..."},  {':', "---..."}, {';', "-.-.-."}, {'=', "-...-"},
+  {'+', ".-.-."},  {'-', "-....-"}, {'_', "..--.-"}, {'"', ".-..-."},
+  {'$', "...-..-"}, {'@', ".--.-."}
+};
+
+static const char* morseLookup(char c) {
+  if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+
+  for (size_t i = 0; i < sizeof(MORSE_TABLE) / sizeof(MORSE_TABLE[0]); i++) {
+    if (MORSE_TABLE[i].symbol == c) return MORSE_TABLE[i].code;
+  }
+  return nullptr;
+}
+
+// ---------------- Text sending engine ----------------
+// 队列里只存字符，元素时序仍然由本机生成：上位机只负责“给什么”，不负责“什么时候按”。
+static constexpr uint16_t TX_BUFFER_SIZE = 256;
+static constexpr uint8_t TX_UNITS_CHAR_GAP = 3;
+static constexpr uint8_t TX_UNITS_WORD_GAP = 7;
+
+enum TxState : uint8_t {
+  TX_IDLE = 0,
+  TX_MARK = 1,
+  TX_ELEM_GAP = 2,
+  TX_CHAR_GAP = 3
+};
+
+static char txBuffer[TX_BUFFER_SIZE];
+static uint16_t txHead = 0;
+static uint16_t txCount = 0;
+
+static TxState txState = TX_IDLE;
+static uint32_t txDeadlineUs = 0;
+static const char* txCode = nullptr;
+static uint8_t txCodeLen = 0;
+static uint8_t txElemIndex = 0;
+static bool txRunning = false;   // SEND,END 之后到 SEND,DONE 之间为 true
+
+static bool txIsSending() {
+  return txState != TX_IDLE;
+}
+
+static bool txMarkActive() {
+  return txState == TX_MARK;
+}
+
+static bool txEnqueue(char c) {
+  if (txCount >= TX_BUFFER_SIZE) return false;
+  txBuffer[(txHead + txCount) % TX_BUFFER_SIZE] = c;
+  txCount++;
+  return true;
+}
+
+static char txPeek(uint16_t offset) {
+  return txBuffer[(txHead + offset) % TX_BUFFER_SIZE];
+}
+
+static char txPop() {
+  const char c = txBuffer[txHead];
+  txHead = (uint16_t)((txHead + 1) % TX_BUFFER_SIZE);
+  txCount--;
+  return c;
+}
+
+static void txClear() {
+  txHead = 0;
+  txCount = 0;
+  txState = TX_IDLE;
+  txCode = nullptr;
+  txCodeLen = 0;
+  txElemIndex = 0;
+  txRunning = false;
+  updateBuzzerOutput();
+}
+
+// 中止发送。notify = false 用于租约失效（此时也无法回传任何东西）。
+static void txAbort(const char* reason, bool notify) {
+  const bool wasActive = txRunning || txState != TX_IDLE;
+
+  txClear();
+
+  if (notify && wasActive) {
+    char line[32];
+    snprintf(line, sizeof(line), "SEND,ABORTED,%s", reason);
+    sendLine(line);
+  }
+}
+
+static void txStartMark(uint32_t nowUs) {
+  const bool isDit = (txCode[txElemIndex] == '.');
+  const uint32_t durationUs = isDit ? dotDurationUs() : dotDurationUs() * 3UL;
+
+  txState = TX_MARK;
+  txDeadlineUs = nowUs + durationUs;
+
+  updateBuzzerOutput();
+  sendElementEvent(isDit, durationUs);
+}
+
+static void txReportRemaining() {
+  char line[24];
+  snprintf(line, sizeof(line), "SENDING,%u", (unsigned)txCount);
+  sendLine(line);
+}
+
+static void txFinish() {
+  txRunning = false;
+  txState = TX_IDLE;
+  updateBuzzerOutput();
+  sendLine("SEND,DONE");
+}
+
+// 取下一个字符并发出它的第一个元素；没有可发字符就收尾。
+static void txStartNextChar(uint32_t nowUs) {
+  while (txCount > 0) {
+    const char c = txPop();
+
+    if (c == ' ') continue;   // 词间隔由字符间隔阶段处理，空格本身不发
+
+    const char* code = morseLookup(c);
+
+    if (code == nullptr) {
+      char line[24];
+      snprintf(line, sizeof(line), "WARN,CHAR,%c",
+               (c >= 32 && c < 127) ? c : '?');
+      sendLine(line);
+      continue;
+    }
+
+    txCode = code;
+    txCodeLen = (uint8_t)strlen(code);
+    txElemIndex = 0;
+    txStartMark(nowUs);
+    return;
+  }
+
+  txFinish();
+}
+
+static void updateTx(uint32_t nowUs) {
+  if (txState == TX_IDLE) {
+    if (txRunning && txCount > 0) txStartNextChar(nowUs);
+    return;
+  }
+
+  if (!timeReached(nowUs, txDeadlineUs)) return;
+
+  switch (txState) {
+    case TX_MARK: {
+      // 元素结束 → 一个单位的元素间隔
+      txState = TX_ELEM_GAP;
+      txDeadlineUs = nowUs + dotDurationUs();
+      updateBuzzerOutput();
+      break;
+    }
+
+    case TX_ELEM_GAP: {
+      if (txElemIndex + 1 < txCodeLen) {
+        txElemIndex++;
+        txStartMark(nowUs);
+        break;
+      }
+
+      // 一个字符发完：先吃掉后面的空格，决定是字符间隔还是词间隔
+      txCode = nullptr;
+
+      uint8_t gapUnits = TX_UNITS_CHAR_GAP;
+
+      while (txCount > 0 && txPeek(0) == ' ') {
+        txPop();
+        gapUnits = TX_UNITS_WORD_GAP;
+      }
+
+      if (txCount == 0) {
+        txFinish();
+        break;
+      }
+
+      txReportRemaining();
+
+      txState = TX_CHAR_GAP;
+      txDeadlineUs = nowUs + dotDurationUs() * gapUnits;
+      break;
+    }
+
+    case TX_CHAR_GAP: {
+      if (txCount > 0) txStartNextChar(nowUs);
+      else txFinish();
+      break;
+    }
+
+    default:
+      txState = TX_IDLE;
+      break;
+  }
+}
+
 // ---------------- Protocol ----------------
 static void acknowledge(const char* key, const char* value) {
   char line[64];
@@ -437,7 +673,7 @@ static void handleCommand(char* line) {
   refreshHostLease();
 
   if (strcmp(line, "HELLO,1") == 0) {
-    sendLine("READY,1,CWTRAINER,2.2.0");
+    sendLine("READY,1,CWTRAINER,3.0.0");
     sendStatus();
     return;
   }
@@ -449,6 +685,57 @@ static void handleCommand(char* line) {
 
   if (strcmp(line, "GET") == 0) {
     sendStatus();
+    return;
+  }
+
+  // ---- 发送方向 ----
+  if (strcmp(line, "SEND,BEGIN") == 0) {
+    txClear();
+    resetKeyerForModeChange();
+    sendLine("ACK,SEND,BEGIN");
+    return;
+  }
+
+  if (strncmp(line, "SEND,TEXT,", 10) == 0) {
+    const char* text = line + 10;
+
+    for (size_t i = 0; text[i] != '\0'; i++) {
+      char c = text[i];
+      if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+
+      if (!txEnqueue(c)) {
+        sendLine("ERROR,TX_FULL");
+        break;
+      }
+    }
+
+    {
+      char ack[40];
+      snprintf(ack, sizeof(ack), "ACK,SEND,TEXT,%u", (unsigned)txCount);
+      sendLine(ack);
+    }
+    return;
+  }
+
+  if (strcmp(line, "SEND,END") == 0) {
+    if (txCount == 0) {
+      sendLine("SEND,DONE");
+      return;
+    }
+
+    {
+      char started[40];
+      snprintf(started, sizeof(started), "SEND,START,%u", (unsigned)txCount);
+      sendLine(started);
+    }
+
+    resetKeyerForModeChange();   // 手键状态清零，避免和自动拍发互相踩
+    txRunning = true;
+    return;
+  }
+
+  if (strcmp(line, "SEND,STOP") == 0) {
+    txAbort("STOP", true);
     return;
   }
 
@@ -498,6 +785,7 @@ static void handleCommand(char* line) {
       return;
     }
     if (newMode != keyerMode) {
+      txAbort("MODE", true);
       resetKeyerForModeChange();
       keyerMode = newMode;
       updateBuzzerOutput();
@@ -550,6 +838,9 @@ static void updateHostLease() {
     // 租约刚到期：把请求的输出模式也一并清掉，
     // 免得下一次连接之前一直卡在“请求 PC 发声但没人发声”的静音态。
     outputMode = OUTPUT_BUZZER;
+
+    // 上位机没了就不要再自己拍发，否则会一直发到队列结束。
+    txAbort("HOST", false);
   }
 
   hostWasActive = active;
@@ -577,11 +868,20 @@ void loop() {
   if (ditChanged) sendKeyEvent("DIT", ditInput.stablePressed);
   if (dahChanged) sendKeyEvent("DAH", dahInput.stablePressed);
 
-  if (keyerMode == MODE_STRAIGHT) {
-    updateStraightMode(ditChanged);
-  } else {
-    updatePaddleKeyer(nowUs, ditChanged, dahChanged);
+  // 手键永远优先：自动拍发过程中按任意桨，立刻中止发送并交还手动键控。
+  if (txIsSending() && (ditInput.stablePressed || dahInput.stablePressed)) {
+    txAbort("PADDLE", true);
   }
+
+  if (!txIsSending()) {
+    if (keyerMode == MODE_STRAIGHT) {
+      updateStraightMode(ditChanged);
+    } else {
+      updatePaddleKeyer(nowUs, ditChanged, dahChanged);
+    }
+  }
+
+  updateTx(nowUs);
 
   readSerialCommands();
   updateHostLease();
