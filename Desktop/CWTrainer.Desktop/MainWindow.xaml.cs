@@ -648,6 +648,10 @@ public partial class MainWindow : Window
             if (!_txActive)
                 FeedElement(isDit, durationUs, startMs, startMs + durationMs);
 
+            // 通联模式下把这次点/划画到瀑布中心（长度就是实际时长）
+            long qsoDuration = durationMs;
+            PostUi(() => OnQsoElement(qsoDuration));
+
             if (_outputMode is "PC" or "BOTH")
                 PlayComputerTone(Math.Clamp((int)durationMs, 1, 2000));
 
@@ -716,6 +720,7 @@ public partial class MainWindow : Window
         if (on)
         {
             _straightMarkStartMs = receivedAtMs;
+            PostUi(() => OnQsoKey(true));
 
             if (_outputMode is "PC" or "BOTH")
                 StartComputerToneLoop();
@@ -724,6 +729,7 @@ public partial class MainWindow : Window
 
         long startMs = _straightMarkStartMs;
         _straightMarkStartMs = -1;
+        PostUi(() => OnQsoKey(false));
 
         if (_outputMode is "PC" or "BOTH")
             StopComputerTone();

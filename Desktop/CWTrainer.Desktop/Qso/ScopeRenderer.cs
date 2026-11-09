@@ -61,19 +61,69 @@ public sealed class ScopeRenderer
 
     public int WaterfallHeight => _waterfallHeight;
 
-    /// <summary>追加一行瀑布（通常在 10–20 Hz 的节奏上调用）。</summary>
-    public void PushWaterfallRow(double[] spectrum)
-    {
-        int rowStart = _rowIndex * _width;
+    /// <summary>追加一行瀑布（保留给逐行调用的场合）。</summary>
+    public void PushWaterfallRow(double[] spectrum) => PushWaterfallRows(spectrum, 1, 0, null);
 
-        for (int x = 0; x < _width; x++)
+    /// <summary>
+    /// 一次追加多行瀑布。真实 SDR 的瀑布是按时间连续流动的，
+    /// 每帧滚 3–5 行才能让 60 ms 的点、180 ms 的划在图上分出长短，
+    /// 一行一帧（10 行/秒）的话点和划都会被压成同一个像素点。
+    ///
+    /// txAges 是我们的发射窗口（距现在多少毫秒），用来在中心画那根发射柱：
+    /// 柱子有多高，就是手按了多久。
+    /// </summary>
+    public void PushWaterfallRows(
+        double[] spectrum, int rows, double msPerRow,
+        IReadOnlyList<(double StartAgeMs, double EndAgeMs)>? txAges)
+    {
+        if (rows <= 0)
+            return;
+
+        for (int r = 0; r < rows; r++)
         {
-            int bin = Math.Clamp(x * spectrum.Length / _width, 0, spectrum.Length - 1);
-            double t = Normalize(spectrum[bin]);
-            _waterRows[rowStart + x] = _palette[(int)(t * 255)];
+            int rowStart = _rowIndex * _width;
+
+            for (int x = 0; x < _width; x++)
+            {
+                int bin = Math.Clamp(x * spectrum.Length / _width, 0, spectrum.Length - 1);
+                double t = Normalize(spectrum[bin]);
+                _waterRows[rowStart + x] = _palette[(int)(t * 255)];
+            }
+
+            // 这一行覆盖的时间窗（距离现在的毫秒数，越老越大）
+            double ageNewer = (rows - r - 1) * msPerRow;
+            double ageOlder = ageNewer + msPerRow;
+
+            if (txAges != null && txAges.Count > 0)
+                PaintTxColumn(rowStart, ageNewer, ageOlder, txAges);
+
+            _rowIndex = (_rowIndex + 1) % _waterfallHeight;
+        }
+    }
+
+    private void PaintTxColumn(
+        int rowStart, double ageNewer, double ageOlder,
+        IReadOnlyList<(double StartAgeMs, double EndAgeMs)> txAges)
+    {
+        bool keyed = false;
+
+        foreach ((double startAge, double endAge) in txAges)
+        {
+            if (Math.Max(ageNewer, endAge) < Math.Min(ageOlder, startAge))
+            {
+                keyed = true;
+                break;
+            }
         }
 
-        _rowIndex = (_rowIndex + 1) % _waterfallHeight;
+        if (!keyed)
+            return;
+
+        int center = _width / 2;
+        int half = Math.Max(1, _width / 260);   // 扫宽越窄，柱子越细
+
+        for (int x = Math.Max(0, center - half); x <= Math.Min(_width - 1, center + half); x++)
+            _waterRows[rowStart + x] = _palette[255];
     }
 
     /// <summary>把频谱曲线与瀑布合成到一张位图上并提交。</summary>

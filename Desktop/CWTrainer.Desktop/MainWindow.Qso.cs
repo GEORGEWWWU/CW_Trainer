@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using CWTrainer.Desktop.Qso;
@@ -15,30 +17,50 @@ namespace CWTrainer.Desktop;
 /// </summary>
 public partial class MainWindow
 {
+    /// <summary>侧音频率。真机 600–800 Hz，取 700 是 Elecraft/八重洲的常见默认值。</summary>
+    private const int QsoPitchHz = 700;
+
+    /// <summary>瀑布每行代表多少毫秒。12.5 ms/行 × 每帧 4 行 = 80 px/秒。</summary>
+    private const double WaterfallMsPerRow = 12.5;
+
+    private const int WaterfallRowsPerTick = 4;
+
     private QsoSimulator? _qso;
     private ScopeRenderer? _scope;
+    private QsoAudioEngine? _qsoAudio;
     private DispatcherTimer? _qsoTimer;
 
     private double _qsoSpanHz = 25_000;
     private int _qsoStepHz = 100;
     private double[]? _qsoSpectrum;
-    private int _qsoRowCounter;
     private int _qsoLabelCounter;
     private int _qsoActivityCounter;
+    private int _qsoAudioCounter;
     private bool _scopePrefilled;
+
+    private bool _qsoNoiseOn;
+    private int _qsoVolume = 25;
 
     // 每个波段记住上次停留的频率，切回去时手不陌生
     private readonly Dictionary<string, long> _bandMemory = new();
+
+    // S 表峰值保持
+    private double _peakFraction;
+    private double _peakHoldSeconds;
 
     // 拖动调谐
     private bool _scopeDragging;
     private Point _scopeDragStart;
     private long _scopeDragStartFreq;
 
+    private bool _qsoVisible => QsoView != null && QsoView.Visibility == Visibility.Visible;
+
     private void InitQso()
     {
         _qso = new QsoSimulator();
         BuildBandButtons();
+
+        _qsoAudio = new QsoAudioEngine(AddLog);
 
         _qsoTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
@@ -77,6 +99,13 @@ public partial class MainWindow
             InitQso();
 
         _qsoTimer?.Start();
+        _qsoAudio?.Start();
+
+        // 之前开着底噪，切回来时要把开关的状态真正恢复上，
+        // 不能只是"开关看着是开的"。
+        _qsoNoiseOn = NoiseOnRadio?.IsChecked == true;
+        PushAudioScene();
+
         UpdateQsoLabels(force: true);
         RebuildActivityList();
     }
@@ -84,6 +113,7 @@ public partial class MainWindow
     private void StopQso()
     {
         _qsoTimer?.Stop();
+        _qsoAudio?.Stop();
         _audio.Stop();
     }
 
@@ -107,20 +137,26 @@ public partial class MainWindow
 
         _qsoSpectrum = _qso.BuildSpectrum(_scope.Width, _qsoSpanHz);
 
-        // 瀑布 10 行/秒：再快只是更亮更糊，人眼看不出信息量
-        if (++_qsoRowCounter >= 2)
-        {
-            _scope.PushWaterfallRow(_qsoSpectrum);
-            _qsoRowCounter = 0;
-        }
+        // 瀑布按 80 px/s 走：点和划在这个速度下才分得出长短
+        _scope.PushWaterfallRows(
+            _qsoSpectrum, WaterfallRowsPerTick, WaterfallMsPerRow, _qso.TxAges());
 
         _scope.Render(_qsoSpectrum);
+
+        UpdateTxBadge();
 
         // 文字指标 4 Hz 刷新就够，避免每帧都排版
         if (++_qsoLabelCounter >= 5)
         {
             _qsoLabelCounter = 0;
             UpdateQsoLabels(force: false);
+        }
+
+        // 音频场景 4 Hz 重建；信号强度、底噪都在缓慢变化，不用每帧算
+        if (++_qsoAudioCounter >= 5)
+        {
+            _qsoAudioCounter = 0;
+            PushAudioScene();
         }
 
         // 电台列表 2 秒重建一次：信号强度会变，排序也会跟着变
@@ -138,7 +174,44 @@ public partial class MainWindow
             return;
 
         for (int i = 0; i < _scope.WaterfallHeight; i++)
-            _scope.PushWaterfallRow(_qso.BuildSpectrum(_scope.Width, _qsoSpanHz));
+            _scope.PushWaterfallRows(_qso.BuildSpectrum(_scope.Width, _qsoSpanHz), 1, 0, null);
+    }
+
+    /// <summary>把当前场景送给音频线程。发射时 RX 静音，和半双工真机一致。</summary>
+    private void PushAudioScene()
+    {
+        if (_qso == null || _qsoAudio == null)
+            return;
+
+        _qsoAudio.Update(
+            _qso.BuildAudioScene(_qsoVolume / 100.0, _qsoNoiseOn, QsoPitchHz, _qso.IsTransmitting));
+    }
+
+    /// <summary>
+    /// 设备每发一个点或划，固件都会报 ELEMENT,DIT|DAH,&lt;微秒&gt;。
+    /// 通联模式下把它画到瀑布中心，柱子高度 = 这个元素的实际时长。
+    /// </summary>
+    internal void OnQsoElement(long durationMs)
+    {
+        if (_qso == null || !_qsoVisible)
+            return;
+
+        _qso.NotifyTx(durationMs);
+        PushAudioScene();
+    }
+
+    /// <summary>直键：按下/松开，长度等松开才知道。</summary>
+    internal void OnQsoKey(bool down)
+    {
+        if (_qso == null || !_qsoVisible)
+            return;
+
+        if (down)
+            _qso.NotifyTxDown();
+        else
+            _qso.NotifyTxUp();
+
+        PushAudioScene();
     }
 
     private void RebuildActivityList()
@@ -147,6 +220,8 @@ public partial class MainWindow
             return;
 
         QsoActivityList.Children.Clear();
+
+        int rowIndex = 0;
 
         foreach (Station station in _qso.StationsInBand.Take(5))
         {
@@ -179,7 +254,8 @@ public partial class MainWindow
                 FontWeight = FontWeights.SemiBold,
                 Foreground = (Brush)FindResource("Ink"),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 0, 0, 0)
+                Margin = new Thickness(6, 0, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
             Grid.SetColumn(call, 1);
 
@@ -203,6 +279,8 @@ public partial class MainWindow
 
             // 复合内容不会自动生成无障碍名称，这里显式给一个
             AutomationProperties.SetName(row, station.Call);
+            row.SetValue(AutomationProperties.AutomationIdProperty, $"ActivityRow{rowIndex}");
+            rowIndex++;
 
             QsoActivityList.Children.Add(row);
         }
@@ -237,11 +315,12 @@ public partial class MainWindow
             modeButton.IsChecked = true;
         else
         {
-            QsoBandwidthText.Text = BandwidthText(_qso.Mode);
+            QsoBandwidthText.Text = BandwidthText();
             UpdatePassband();
         }
 
         UpdateQsoLabels(force: true);
+        PushAudioScene();
     }
 
     private void UpdateQsoLabels(bool force)
@@ -268,26 +347,37 @@ public partial class MainWindow
         QsoSignalCall.Text = station?.Call ?? "无信号";
         QsoSignalCall.Foreground = (Brush)FindResource(station == null ? "Ink3" : "Ink");
 
-        QsoSignalDetail.Text = station == null
-            ? "调谐频率或点击瀑布，寻找波段的活跃信号"
-            : $"{ModeText(station.Mode)} · {FormatHz(station.FreqHz)}\n" +
-              $"{station.LevelDbm:0} dBm 中值，强度随传播起伏";
+        if (station == null)
+        {
+            QsoSignalDetail.Text = "调谐频率或点击瀑布，寻找波段的活跃信号";
+            QsoStationTraffic.Text = "—";
+        }
+        else
+        {
+            QsoSignalDetail.Text =
+                $"{ModeText(station.Mode)} · {FormatHz(station.FreqHz)}\n" +
+                $"{station.LevelDbm:0} dBm 中值，强度随传播起伏";
+
+            QsoStationTraffic.Text = station.Mode == EmissionMode.Cw
+                ? $"{station.Wpm} WPM · {station.Message}"
+                : "语音（SSB），无法抄成文字";
+        }
 
         QsoNoiseText.Text = $"{_qso.NoiseDbm:0} dBm";
 
         if (force)
         {
-            QsoBandwidthText.Text = BandwidthText(_qso.Mode);
+            QsoBandwidthText.Text = BandwidthText();
             UpdatePassband();
             RebuildScopeAxis();
         }
     }
 
-    private static string BandwidthText(EmissionMode mode) => mode switch
+    private string BandwidthText() => _qso == null ? "—" : _qso.Mode switch
     {
-        EmissionMode.Cw => "CW · 500 Hz",
-        EmissionMode.Usb => "USB · 2.4 kHz",
-        EmissionMode.Lsb => "LSB · 2.4 kHz",
+        EmissionMode.Cw => $"CW · {_qso.BandwidthHz:0} Hz",
+        EmissionMode.Usb => $"USB · {_qso.BandwidthHz / 1000.0:0.0} kHz",
+        EmissionMode.Lsb => $"LSB · {_qso.BandwidthHz / 1000.0:0.0} kHz",
         _ => "—"
     };
 
@@ -322,26 +412,65 @@ public partial class MainWindow
         if (microvolts < 1)
             return $"{microvolts:0.0} µV";
 
-        if (microvolts < 100)
-            return $"{microvolts:0} µV";
-
         return $"{microvolts:0} µV";
     }
 
+    private void UpdateTxBadge()
+    {
+        if (QsoTxBadge == null || _qso == null)
+            return;
+
+        QsoTxBadge.Visibility = _qso.IsTransmitting ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     // ---------- S 表 ----------
+
+    private const double SMeterFloorDbm = -121;   // S1
+    private const double SMeterRangeDb = 108;     // S1 → S9+60
 
     private void UpdateSMeterBar(double dbm)
     {
         if (SMeterFill == null || SMeterHost == null)
             return;
 
-        // 表盘范围：S1(-121) 到 S9+60(-13)，共 108 dB。
-        // S9 = -73 dBm，每格 6 dB，所以 S1 是 -73 - 48 = -121。
-        const double floorDbm = -121;
-        const double rangeDb = 108;
+        double width = SMeterHost.ActualWidth;
 
-        double fraction = Math.Clamp((dbm - floorDbm) / rangeDb, 0, 1);
-        SMeterFill.Width = Math.Max(0, SMeterHost.ActualWidth * fraction);
+        if (width <= 0)
+            return;
+
+        double fraction = Math.Clamp((dbm - SMeterFloorDbm) / SMeterRangeDb, 0, 1);
+
+        // 真表针有惯性：WPF 用一段时间补齐到目标值，20 fps 的数据也能看着丝滑
+        var animation = new DoubleAnimation(Math.Max(0, width * fraction),
+                                            TimeSpan.FromMilliseconds(140))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+
+        SMeterFill.BeginAnimation(FrameworkElement.WidthProperty, animation);
+
+        // 峰值保持：冲上去立刻标记，然后慢慢回落
+        if (fraction >= _peakFraction)
+        {
+            _peakFraction = fraction;
+            _peakHoldSeconds = 1.2;
+        }
+        else if (_peakHoldSeconds > 0)
+        {
+            _peakHoldSeconds -= 0.05;
+        }
+        else
+        {
+            _peakFraction = Math.Max(fraction, _peakFraction - 0.004);
+        }
+
+        if (SMeterPeak != null)
+        {
+            SMeterPeak.Visibility = _peakFraction > 0.01 ? Visibility.Visible : Visibility.Collapsed;
+            SMeterPeak.Margin = new Thickness(
+                Math.Clamp(width * _peakFraction - 1, 0, Math.Max(0, width - 2)), 0, 0, 0);
+        }
     }
 
     private void SMeterHost_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -363,12 +492,9 @@ public partial class MainWindow
             ("+20", -53), ("+40", -33), ("+60", -13)
         };
 
-        const double floorDbm = -121;
-        const double rangeDb = 108;
-
         foreach ((string label, double dbm) in marks)
         {
-            double x = Math.Clamp((dbm - floorDbm) / rangeDb, 0, 1) * width;
+            double x = Math.Clamp((dbm - SMeterFloorDbm) / SMeterRangeDb, 0, 1) * width;
 
             var tick = new Rectangle
             {
@@ -511,14 +637,13 @@ public partial class MainWindow
         if (width <= 0)
             return;
 
-        double bandwidth = _qso.Mode == EmissionMode.Cw ? QsoSimulator.CwBandwidthHz
-                                                       : QsoSimulator.SsbBandwidthHz;
+        double bandwidth = _qso.BandwidthHz;
+        double pixels = Math.Max(4, bandwidth / _qsoSpanHz * width);
 
-        double pixels = Math.Max(8, bandwidth / _qsoSpanHz * width);
-
-        // SSB 的通带在载波一侧，视觉上偏一点更像真机
+        // 通带相对载波的位置：CW 的滤波器在侧音上，USB 在上边带，LSB 在下边带
         double offsetPx = _qso.Mode switch
         {
+            EmissionMode.Cw => QsoPitchHz / _qsoSpanHz * width,
             EmissionMode.Usb => 1500.0 / _qsoSpanHz * width,
             EmissionMode.Lsb => -1500.0 / _qsoSpanHz * width,
             _ => 0
@@ -545,9 +670,28 @@ public partial class MainWindow
             _ => EmissionMode.Cw
         };
 
-        QsoBandwidthText.Text = BandwidthText(_qso.Mode);
+        QsoBandwidthText.Text = BandwidthText();
         UpdatePassband();
         UpdateQsoLabels(force: false);
+        PushAudioScene();
+    }
+
+    private void QsoFilter_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton radio || _qso == null)
+            return;
+
+        _qso.Filter = radio.Tag?.ToString() switch
+        {
+            "Narrow" => FilterSlot.Narrow,
+            "Wide" => FilterSlot.Wide,
+            _ => FilterSlot.Medium
+        };
+
+        QsoBandwidthText.Text = BandwidthText();
+        UpdatePassband();
+        UpdateQsoLabels(force: false);
+        PushAudioScene();
     }
 
     private void QsoStep_Checked(object sender, RoutedEventArgs e)
@@ -582,6 +726,7 @@ public partial class MainWindow
 
         _qso.FrequencyHz += deltaHz;
         UpdateQsoLabels(force: false);
+        PushAudioScene();
     }
 
     private void Scope_MouseWheel(object sender, MouseWheelEventArgs e)
@@ -647,6 +792,8 @@ public partial class MainWindow
             _qso.FrequencyHz = RoundTo(_qso.FrequencyHz + (long)Math.Round(offset), 10);
             UpdateQsoLabels(force: false);
         }
+
+        PushAudioScene();
     }
 
     private void Scope_MouseLeave(object sender, MouseEventArgs e)
@@ -660,6 +807,95 @@ public partial class MainWindow
 
     private static long RoundTo(long value, int step) => (long)Math.Round(value / (double)step) * step;
 
+    // ---------- 频率直接输入 ----------
+
+    private void QsoFreq_MouseDown(object sender, MouseButtonEventArgs e) => BeginFreqEdit();
+
+    private void BeginFreqEdit()
+    {
+        if (_qso == null || QsoFreqEditor == null)
+            return;
+
+        QsoFreqEditor.Text = (_qso.FrequencyHz / 1e6).ToString("0.000000", CultureInfo.InvariantCulture);
+        QsoFreqText.Visibility = Visibility.Collapsed;
+        QsoFreqEditor.Visibility = Visibility.Visible;
+        QsoFreqEditor.Focus();
+        QsoFreqEditor.SelectAll();
+    }
+
+    private void QsoFreqEditor_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            CommitFreqEdit();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            EndFreqEdit();
+            e.Handled = true;
+        }
+    }
+
+    private void QsoFreqEditor_LostFocus(object sender, RoutedEventArgs e) => CommitFreqEdit();
+
+    private void CommitFreqEdit()
+    {
+        if (_qso == null || QsoFreqEditor == null)
+            return;
+
+        if (TryParseFrequency(QsoFreqEditor.Text, out long hz))
+        {
+            _qso.FrequencyHz = hz;
+            UpdateQsoLabels(force: true);
+            RebuildActivityList();
+            PushAudioScene();
+        }
+
+        EndFreqEdit();
+    }
+
+    private void EndFreqEdit()
+    {
+        if (QsoFreqEditor == null || QsoFreqText == null)
+            return;
+
+        QsoFreqEditor.Visibility = Visibility.Collapsed;
+        QsoFreqText.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// 接受 14.030500（MHz）、7030（kHz）、7030000（Hz）三种写法。
+    /// 和真机的"直接置频"一样，输完回车就跳过去。
+    /// </summary>
+    internal static bool TryParseFrequency(string? text, out long hz)
+    {
+        hz = 0;
+
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        string cleaned = text.Trim().Replace(" ", "").Replace("_", "").Replace(",", "");
+
+        if (cleaned.Contains('.'))
+        {
+            if (!double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out double mhz))
+                return false;
+
+            hz = (long)Math.Round(mhz * 1e6);
+        }
+        else
+        {
+            if (!long.TryParse(cleaned, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value))
+                return false;
+
+            // 位数少的是 kHz，多了才是 Hz —— 7030 说成 7.030 MHz 才是人之常情
+            hz = cleaned.Length <= 5 ? value * 1000 : value;
+        }
+
+        return hz is >= 30_000 and <= 30_000_000;
+    }
+
     // ---------- 波段 ----------
 
     private void BuildBandButtons()
@@ -668,7 +904,6 @@ public partial class MainWindow
             return;
 
         BandGrid.Children.Clear();
-        _bandMemory.Clear();
 
         foreach (BandInfo band in QsoSimulator.Bands)
         {
@@ -691,7 +926,7 @@ public partial class MainWindow
         if (sender is not RadioButton { Tag: BandInfo band } || _qso == null)
             return;
 
-        // 记住上个波段的频率
+        // 记住上个波段的频率，切回去时手不陌生
         _bandMemory[_qso.Band.Name] = _qso.FrequencyHz;
 
         long target = _bandMemory.TryGetValue(band.Name, out long saved)
@@ -702,16 +937,40 @@ public partial class MainWindow
         RebuildScopeAxis();
         UpdateQsoLabels(force: true);
         RebuildActivityList();
+        PushAudioScene();
+
+        // 换波段后瀑布上全是上一个波段的痕迹，清一下更像真机
+        _scope?.Clear();
+        _scopePrefilled = false;
     }
 
     /// <summary>默认停在波段里的热门段：CW 在低端，SSB 在中段。</summary>
     private long DefaultFrequencyFor(BandInfo band)
-        => _qso?.Mode switch
+    {
+        long hot = _qso?.Mode switch
         {
-            EmissionMode.Cw => band.StartHz + 25_000,
             EmissionMode.Usb => band.StartHz + (long)((band.EndHz - band.StartHz) * 0.62),
-            _ => band.StartHz + (long)((band.EndHz - band.StartHz) * 0.55)
+            EmissionMode.Lsb => band.StartHz + (long)((band.EndHz - band.StartHz) * 0.55),
+            _ => band.StartHz + 25_000
         };
+
+        // 热门频点：40m 7.030、20m 14.025 这些是 CW 的"公共频道"
+        long classic = band.Name switch
+        {
+            "160m" => 1_825_000,
+            "80m" => 3_560_000,
+            "40m" => 7_030_000,
+            "30m" => 10_115_000,
+            "20m" => 14_025_000,
+            "17m" => 18_080_000,
+            "15m" => 21_030_000,
+            "12m" => 24_900_000,
+            "10m" => 28_030_000,
+            _ => hot
+        };
+
+        return _qso?.Mode == EmissionMode.Cw ? classic : hot;
+    }
 
     // ---------- 音频 ----------
 
@@ -720,12 +979,16 @@ public partial class MainWindow
         if (sender is not RadioButton radio || NoiseVolumeSlider == null)
             return;
 
-        bool on = radio.Tag?.ToString() == "1";
+        _qsoNoiseOn = radio.Tag?.ToString() == "1";
 
-        if (on)
-            _audio.StartNoise((int)NoiseVolumeSlider.Value);
-        else
-            _audio.Stop();
+        if (_qsoAudio == null)
+            return;
+
+        // 引擎只在通联模式里跑；切回来时 StartQso 会按开关状态重新拉起
+        if (_qsoNoiseOn && _qsoVisible)
+            _qsoAudio.Start();
+
+        PushAudioScene();
     }
 
     private void NoiseVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -734,8 +997,9 @@ public partial class MainWindow
             return;
 
         NoiseVolumeText.Text = $"{(int)e.NewValue}%";
+        _qsoVolume = (int)e.NewValue;
 
-        if (NoiseOnRadio?.IsChecked == true)
-            _audio.StartNoise((int)e.NewValue);
+        if (_qsoAudio != null && _qsoVisible)
+            PushAudioScene();
     }
 }

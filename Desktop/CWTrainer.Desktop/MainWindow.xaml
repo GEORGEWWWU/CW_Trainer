@@ -720,6 +720,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <Grid Grid.Row="0">
@@ -743,22 +744,64 @@
                                 </StackPanel>
                             </Grid>
 
-                            <StackPanel Grid.Row="1"
-                                        Orientation="Horizontal"
-                                        Margin="0,2,0,0">
+                            <Grid Grid.Row="1"
+                                  Margin="0,2,0,0"
+                                  Background="Transparent"
+                                  MouseLeftButtonDown="QsoFreq_MouseDown">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
                                 <TextBlock x:Name="QsoFreqText"
+                                           Grid.Column="0"
                                            Text="14.025.000"
                                            FontFamily="{StaticResource MonoFont}"
                                            FontSize="44"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource Ink}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="MHz"
+                                           VerticalAlignment="Center"
+                                           ToolTip="点一下可以直接输入频率：14.0305 / 7030 / 7030000 都认"/>
+
+                                <TextBox x:Name="QsoFreqEditor"
+                                         Grid.Column="0"
+                                         Visibility="Collapsed"
+                                         FontFamily="{StaticResource MonoFont}"
+                                         FontSize="44"
+                                         FontWeight="SemiBold"
+                                         Foreground="{DynamicResource Ink}"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         Width="320"
+                                         VerticalAlignment="Center"
+                                         AutomationProperties.Name="频率输入"
+                                         KeyDown="QsoFreqEditor_KeyDown"
+                                         LostFocus="QsoFreqEditor_LostFocus"/>
+
+                                <TextBlock Grid.Column="1"
+                                           Text="MHz"
                                            FontSize="12"
                                            Foreground="{DynamicResource Ink3}"
                                            VerticalAlignment="Bottom"
                                            Margin="10,0,0,9"/>
-                            </StackPanel>
+
+                                <Border x:Name="QsoTxBadge"
+                                        Grid.Column="3"
+                                        Visibility="Collapsed"
+                                        Background="{DynamicResource Accent}"
+                                        CornerRadius="4"
+                                        Padding="7,2,7,3"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="发射中">
+                                    <TextBlock Text="TX"
+                                               FontSize="10.5"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource OnAccent}"/>
+                                </Border>
+                            </Grid>
 
                             <Grid Grid.Row="2" Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
@@ -827,6 +870,37 @@
                                     </Button>
                                 </StackPanel>
                             </Grid>
+
+                            <!-- 滤波器：真机的 FIL1/FIL2/FIL3，宽度随模式变化 -->
+                            <Grid Grid.Row="3" Margin="0,8,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="滤波"
+                                               Style="{StaticResource CardLabel}"
+                                               VerticalAlignment="Center"/>
+                                    <Border Style="{StaticResource SegmentBar}"
+                                            Margin="10,0,0,0"
+                                            Padding="3">
+                                        <UniformGrid Columns="3" Width="150">
+                                            <RadioButton Content="窄" Tag="Narrow" GroupName="QsoFilter"
+                                                         Style="{StaticResource TopSegmentRadio}"
+                                                         Checked="QsoFilter_Checked"/>
+                                            <RadioButton Content="中" Tag="Medium" GroupName="QsoFilter"
+                                                         IsChecked="True"
+                                                         Style="{StaticResource TopSegmentRadio}"
+                                                         Checked="QsoFilter_Checked"/>
+                                            <RadioButton Content="宽" Tag="Wide" GroupName="QsoFilter"
+                                                         Style="{StaticResource TopSegmentRadio}"
+                                                         Checked="QsoFilter_Checked"/>
+                                        </UniformGrid>
+                                    </Border>
+                                </StackPanel>
+
+                                <TextBlock x:Name="QsoTapHint"
+                                           Text="点击频率可直接输入"
+                                           Style="{StaticResource Hint}"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
                         </Grid>
                     </Border>
 
@@ -881,6 +955,15 @@
                                         CornerRadius="3"
                                         HorizontalAlignment="Left"
                                         Width="0"/>
+                                <!-- 峰值保持：真 SDR 上的那根细标记，慢慢回落 -->
+                                <Rectangle x:Name="SMeterPeak"
+                                           Width="2"
+                                           Height="12"
+                                           RadiusX="1" RadiusY="1"
+                                           Fill="{DynamicResource Ink}"
+                                           Opacity="0.55"
+                                           Visibility="Collapsed"
+                                           HorizontalAlignment="Left"/>
                             </Grid>
 
                             <Canvas x:Name="SMeterTicks"
@@ -991,14 +1074,14 @@
                                 <Border Style="{StaticResource SegmentBar}"
                                         HorizontalAlignment="Right"
                                         Padding="3">
-                                    <UniformGrid Columns="2" Width="104">
+                                    <UniformGrid Columns="2" Width="150">
                                         <RadioButton x:Name="NoiseOffRadio"
                                                      Content="关" Tag="0" GroupName="Noise"
                                                      IsChecked="True"
                                                      Style="{StaticResource TopSegmentRadio}"
                                                      Checked="NoiseSegment_Checked"/>
                                         <RadioButton x:Name="NoiseOnRadio"
-                                                     Content="白噪声" Tag="1" GroupName="Noise"
+                                                     Content="模拟底噪" Tag="1" GroupName="Noise"
                                                      Style="{StaticResource TopSegmentRadio}"
                                                      Checked="NoiseSegment_Checked"/>
                                     </UniformGrid>
@@ -1059,6 +1142,15 @@
                                            Style="{StaticResource Hint}"
                                            HorizontalAlignment="Right"/>
                             </Grid>
+
+                            <TextBlock x:Name="QsoStationTraffic"
+                                       Text="—"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="10.5"
+                                       Foreground="{DynamicResource Ink3}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="15"
+                                       Margin="0,9,0,0"/>
                         </StackPanel>
                     </Border>
 

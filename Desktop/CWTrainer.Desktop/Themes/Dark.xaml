@@ -22,6 +22,9 @@
     <SolidColorBrush x:Key="Accent"          Color="#FF6B37"/>
     <SolidColorBrush x:Key="AccentDown"      Color="#FF8A5C"/>
 
+    <!-- 强调色底上的文字：橙底配深色字，两套主题一致 -->
+    <SolidColorBrush x:Key="OnAccent"        Color="#1A1008"/>
+
     <SolidColorBrush x:Key="OnInk"           Color="#121213"/>
     <SolidColorBrush x:Key="InkHover"        Color="#FFFFFF"/>
     <SolidColorBrush x:Key="InkPressed"      Color="#D6D6D8"/>

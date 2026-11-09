@@ -8,6 +8,14 @@ public enum EmissionMode
     Lsb
 }
 
+/// <summary>滤波器档位。真机一般给 2–3 档，CW 窄到 250 Hz、SSB 宽到 3 kHz。</summary>
+public enum FilterSlot
+{
+    Narrow,
+    Medium,
+    Wide
+}
+
 /// <summary>一个业余波段。</summary>
 public sealed record BandInfo(string Name, long StartHz, long EndHz, double NoiseDbm)
 {
@@ -24,6 +32,7 @@ public sealed class Station
     public required long FreqHz { get; init; }
     public required EmissionMode Mode { get; init; }
     public required string Call { get; init; }
+    public required string Country { get; init; }
 
     /// <summary>信号强度（无衰落时的中值，dBm）。</summary>
     public required double LevelDbm { get; init; }
@@ -35,6 +44,17 @@ public sealed class Station
     /// <summary>缓慢的漂移（Hz），模拟对方 VFO 与传播变化。</summary>
     public double DriftHz { get; set; }
 
+    /// <summary>拍发速度（WPM）。SSB 电台为 0。</summary>
+    public int Wpm { get; init; }
+
+    /// <summary>它正在发的内容（CW）或说话节奏（SSB）。</summary>
+    public required MorsePlan Plan { get; init; }
+
+    public string Message { get; init; } = "";
+
+    /// <summary>音频侧唯一标识：呼号 + 频率，重调谐时不会串台。</summary>
+    public string VoiceId => $"{Call}@{FreqHz}";
+
     public double CurrentLevelDbm(double seconds)
     {
         double fade = FadeDepthDb * Math.Sin(FadePhase + seconds * FadeRate);
@@ -42,31 +62,29 @@ public sealed class Station
     }
 }
 
+/// <summary>瀑布上的一根发射柱：我们自己的信号在什么时候按下、什么时候松开。</summary>
+public readonly record struct TxWindow(double StartSeconds, double EndSeconds);
+
 /// <summary>
 /// 通联模式的"接收机"模型。
 ///
-/// 它不做真实的射频仿真，只产生三样东西：
-///   1. 一条按 dBm 分布的频谱（用来画瀑布和频谱线）；
+/// 它不做真实的射频仿真，只产生四样东西：
+///   1. 一条按 dBm 分布的频谱（用来画瀑布和频谱线，含我们自己发射时的那根柱子）；
 ///   2. 当前调谐频率上的接收电平（用来驱动 S 表）；
-///   3. 调谐点落在哪个电台上（用来显示呼号等信息）。
+///   3. 调谐点落在哪个电台上（用来显示呼号等信息）；
+///   4. 一帧音频场景（底噪音色 + 各台 CW 音的频率/音量/按键时间轴）。
 ///
-/// 数值锚点取自真实电台的惯例：HF 段 S9 = -73 dBm，每格 6 dB，+20/+40/+60 以上继续线性。
+/// 数值锚点取自真实电台的惯例：HF 段 S9 = -73 dBm，每格 6 dB。
+/// 底噪按 ITU-R P.372 的规律排：160m 最高、10m 最低，相邻波段约差 2–4 dB。
 /// </summary>
 public sealed class QsoSimulator
 {
     public const double S9Dbm = -73.0;
     public const double SUnitDb = 6.0;
 
-    /// <summary>接收机带宽（Hz）：CW 500、SSB 2400，与真机默认值接近。</summary>
+    /// <summary>默认滤波器宽度（Hz）。CW 500、SSB 2400，与真机默认值一致。</summary>
     public const double CwBandwidthHz = 500.0;
     public const double SsbBandwidthHz = 2400.0;
-
-    private static readonly string[] Callsigns =
-    {
-        "BG6ABC", "BY1AA", "JA1XYZ", "K1ABC", "W7QQ", "DL2XX",
-        "UA9QQ", "VK3YY", "F5XX", "PY2ZZ", "HL5QQ", "ZS6AA",
-        "I2ABC", "OH2XX", "SP9QQ", "JE1ABC"
-    };
 
     public static readonly BandInfo[] Bands =
     {
@@ -81,14 +99,37 @@ public sealed class QsoSimulator
         new("10m", 28_000_000, 29_700_000, -116)
     };
 
+    /// <summary>
+    /// 各波段的底噪"音色"。
+    /// LowEmphasis 越大，低频的隆隆声越重；Crackle 是静电炸裂的频率和幅度。
+    /// 160m/80m 夏天的静电像爆豆，20m 以上基本只剩细嘶声。
+    /// </summary>
+    private static readonly Dictionary<string, NoiseProfile> NoiseProfiles = new()
+    {
+        ["160m"] = new(0.66, 0.88, 2.6, 0.60),
+        ["80m"] = new(0.58, 0.78, 1.8, 0.48),
+        ["40m"] = new(0.50, 0.64, 1.1, 0.36),
+        ["30m"] = new(0.46, 0.54, 0.60, 0.27),
+        ["20m"] = new(0.42, 0.42, 0.30, 0.19),
+        ["17m"] = new(0.38, 0.34, 0.18, 0.14),
+        ["15m"] = new(0.35, 0.28, 0.12, 0.10),
+        ["12m"] = new(0.32, 0.24, 0.07, 0.07),
+        ["10m"] = new(0.29, 0.18, 0.04, 0.05)
+    };
+
     private readonly Random _random = new(20261109);
     private readonly Dictionary<string, List<Station>> _stations = new();
     private readonly double[] _noiseWobble = new double[64];
+    private readonly List<TxWindow> _txWindows = new();
 
     private long _frequencyHz = 14_025_000;
     private EmissionMode _mode = EmissionMode.Cw;
+    private FilterSlot _filter = FilterSlot.Medium;
     private double _seconds;
     private double _sMeterDbm;
+    private double _txUntilSeconds = double.MinValue;
+    private double _txStartSeconds = double.MinValue;
+    private bool _txOpen;
 
     public QsoSimulator()
     {
@@ -113,15 +154,41 @@ public sealed class QsoSimulator
         set => _mode = value;
     }
 
+    public FilterSlot Filter
+    {
+        get => _filter;
+        set => _filter = value;
+    }
+
     public BandInfo Band => FindBand(_frequencyHz);
 
     public double Seconds => _seconds;
+
+    /// <summary>当前滤波器宽度（Hz）。</summary>
+    public double BandwidthHz => _mode switch
+    {
+        EmissionMode.Cw => _filter switch
+        {
+            FilterSlot.Narrow => 250,
+            FilterSlot.Wide => 1000,
+            _ => CwBandwidthHz
+        },
+        _ => _filter switch
+        {
+            FilterSlot.Narrow => 1800,
+            FilterSlot.Wide => 3000,
+            _ => SsbBandwidthHz
+        }
+    };
 
     /// <summary>S 表读数（dBm，带表针的惯性）。</summary>
     public double SMeterDbm => _sMeterDbm;
 
     /// <summary>当前调谐点上的信号电平（瞬时，未平滑）。</summary>
     public double SignalDbm => ComputeLevel(_frequencyHz, _mode);
+
+    /// <summary>正在发射（我们自己的信号占着瀑布中心）。</summary>
+    public bool IsTransmitting => _txOpen || _seconds < _txUntilSeconds;
 
     /// <summary>当前调谐点捕获到的电台（信噪比够高才算）。</summary>
     public Station? TunedStation
@@ -171,10 +238,82 @@ public sealed class QsoSimulator
             foreach (Station station in list)
                 station.DriftHz = Math.Sin(_seconds * 0.21 + station.FadePhase) * 12.0;
 
-        // S 表：上升快、回落慢，像真实表的机械惯性
+        // 表针惯性：起得快、落得慢，和 AGC 的"慢落快起"一致
         double target = SignalDbm;
-        double rate = target > _sMeterDbm ? 0.55 : 0.12;
-        _sMeterDbm += (target - _sMeterDbm) * Math.Clamp(rate * dtSeconds * 8, 0, 1);
+        double tau = target > _sMeterDbm ? 0.03 : 0.28;
+        _sMeterDbm += (target - _sMeterDbm) * (1 - Math.Exp(-dtSeconds / tau));
+
+        _txWindows.RemoveAll(w => _seconds - w.EndSeconds > 4.0);
+    }
+
+    /// <summary>
+    /// 报告一次发射。durationMs 是这次点或划的实际长度 —— 来自固件的 ELEMENT 事件，
+    /// 所以瀑布上的柱子有多长，就是手按了多久。
+    /// </summary>
+    public void NotifyTx(double durationMs)
+    {
+        if (durationMs <= 0)
+            return;
+
+        double end = _seconds + durationMs / 1000.0;
+
+        // 连续的发报（间隔小于 3 个点）并成一段，别在瀑布上碎成一堆小点
+        if (_txWindows.Count > 0)
+        {
+            TxWindow last = _txWindows[^1];
+
+            if (_seconds - last.EndSeconds < 0.09)
+            {
+                _txWindows[^1] = last with { EndSeconds = end };
+                _txStartSeconds = Math.Min(_txStartSeconds, _seconds);
+                _txUntilSeconds = Math.Max(_txUntilSeconds, end);
+                return;
+            }
+        }
+
+        _txStartSeconds = _seconds;
+        _txUntilSeconds = end;
+        _txWindows.Add(new TxWindow(_seconds, end));
+    }
+
+    /// <summary>最近几秒的发射窗口，按"距现在多少毫秒"给瀑布用。</summary>
+    public List<(double StartAgeMs, double EndAgeMs)> TxAges()
+    {
+        var list = new List<(double, double)>(_txWindows.Count);
+
+        foreach (TxWindow window in _txWindows)
+            list.Add(((_seconds - window.EndSeconds) * 1000,
+                      (_seconds - window.StartSeconds) * 1000));
+
+        // 直键按住不放时，柱子要一直长到"现在"
+        if (_txOpen)
+            list.Add((0, (_seconds - _txStartSeconds) * 1000));
+
+        return list;
+    }
+
+    /// <summary>直键按下：固件只报 TONE,ON，长度要等松开才知道。</summary>
+    public void NotifyTxDown()
+    {
+        if (_txOpen)
+            return;
+
+        _txOpen = true;
+        _txStartSeconds = _seconds;
+        _txUntilSeconds = double.MaxValue;
+    }
+
+    /// <summary>直键松开：把这一段的实际时长记进瀑布。</summary>
+    public void NotifyTxUp()
+    {
+        if (!_txOpen)
+            return;
+
+        _txOpen = false;
+        double end = Math.Max(_txStartSeconds + 0.005, _seconds);
+
+        _txUntilSeconds = end;
+        _txWindows.Add(new TxWindow(_txStartSeconds, end));
     }
 
     /// <summary>把 dBm 换成 S 刻度（0 = S0，9 = S9，之后每 10 dB 加一格）。</summary>
@@ -200,14 +339,77 @@ public sealed class QsoSimulator
         return Math.Sqrt(watts * 50.0) * 1e6;
     }
 
-    /// <summary>
-    /// 生成一根频谱：从左到右 binCount 个点，中心是当前调谐频率。
-    /// 返回值单位 dBm。
-    /// </summary>
     /// <summary>当前波段内的全部电台，按强度排序，供电台列表使用。</summary>
     public IReadOnlyList<Station> StationsInBand =>
         StationsOf(Band).OrderByDescending(s => s.CurrentLevelDbm(_seconds)).ToList();
 
+    /// <summary>
+    /// 生成一帧音频场景：底噪音色 + 通带内所有能听到的信号。
+    /// 用侧音做参考频率，偏调时信号音高会跟着变，这就是"调准"的听觉反馈。
+    /// </summary>
+    public AudioScene BuildAudioScene(double masterVolume, bool noiseOn, int pitchHz, bool muted)
+    {
+        double noise = NoiseDbm;
+        double bandwidth = BandwidthHz;
+        double volume = Math.Clamp(masterVolume, 0, 1);
+        var voices = new List<AudioVoice>(4);
+
+        foreach (Station station in StationsOf(Band))
+        {
+            double att = FilterAttenuation(station, _frequencyHz, _mode);
+
+            if (att < -24)
+                continue;
+
+            double level = station.CurrentLevelDbm(_seconds) + att;
+            double snr = level - noise;
+
+            if (snr < 2)
+                continue;
+
+            double audioHz = pitchHz + (station.FreqHz - _frequencyHz);
+
+            if (station.Mode == EmissionMode.Cw && (audioHz < 220 || audioHz > 1600))
+                continue;
+
+            double gain = station.Mode == EmissionMode.Cw
+                ? 0.05 + 0.32 * Math.Clamp((snr - 4) / 32, 0, 1)
+                : 0.04 + 0.16 * Math.Clamp((snr - 4) / 32, 0, 1);
+
+            voices.Add(new AudioVoice
+            {
+                Id = station.VoiceId,
+                Kind = station.Mode == EmissionMode.Cw ? VoiceKind.Cw : VoiceKind.Ssb,
+                AudioHz = audioHz,
+                Gain = gain * volume,
+                Key = station.Plan.Key,
+                CycleMs = station.Plan.CycleMs
+            });
+        }
+
+        // 只留最强的四路，多了就是一团糊
+        if (voices.Count > 4)
+            voices = voices.OrderByDescending(v => v.Gain).Take(4).ToList();
+
+        NoiseProfile profile = NoiseProfiles.TryGetValue(Band.Name, out NoiseProfile? p)
+            ? p
+            : new NoiseProfile(0.4, 0.4, 0.2, 0.15);
+
+        return new AudioScene
+        {
+            Noise = profile with { Gain = noiseOn ? profile.Gain * volume : 0 },
+            Voices = voices,
+            CenterHz = pitchHz,
+            BandwidthHz = bandwidth,
+            SsbWide = _mode != EmissionMode.Cw,
+            Muted = muted || volume <= 0
+        };
+    }
+
+    /// <summary>
+    /// 生成一根频谱：从左到右 binCount 个点，中心是当前调谐频率。
+    /// 返回值单位 dBm。
+    /// </summary>
     public double[] BuildSpectrum(int binCount, double spanHz)
     {
         var result = new double[binCount];
@@ -252,6 +454,25 @@ public sealed class QsoSimulator
             }
         }
 
+        // 自己发射时，中心那根柱子顶到表头之上；宽度就是 CW 键控后的带宽
+        if (IsTransmitting)
+        {
+            double centerBin = binCount / 2.0;
+            double sigma = Math.Max(1.2, 55.0 / hzPerBin);
+            int from = (int)Math.Floor(centerBin - sigma * 3);
+            int to = (int)Math.Ceiling(centerBin + sigma * 3);
+
+            for (int i = Math.Max(0, from); i <= Math.Min(binCount - 1, to); i++)
+            {
+                double offsetHz = (i - centerBin) * hzPerBin;
+                double gauss = Math.Exp(-(offsetHz * offsetHz) / (2 * sigma * sigma));
+                double value = -28 + 20 * Math.Log10(Math.Max(gauss, 1e-6));
+
+                if (value > result[i])
+                    result[i] = value;
+            }
+        }
+
         return result;
     }
 
@@ -262,13 +483,13 @@ public sealed class QsoSimulator
     {
         var list = new List<Station>();
         var used = new HashSet<string>();
-        int count = 4 + _random.Next(4);
-        long span = band.EndHz - band.StartHz;
+        int count = 5 + _random.Next(4);
+        bool local = band.StartHz < 10_000_000;   // 低波段只通附近国家
 
         for (int i = 0; i < count; i++)
         {
             // 低端放 CW，中高端放 SSB —— 和真实波段习惯一致
-            bool cw = _random.NextDouble() < 0.55;
+            bool cw = _random.NextDouble() < 0.6;
             long low = cw ? band.StartHz + 2_000 : band.CwSegmentEndHz + 3_000;
             long high = cw ? band.CwSegmentEndHz : band.EndHz - 3_000;
 
@@ -291,24 +512,61 @@ public sealed class QsoSimulator
 
             do
             {
-                call = Callsigns[_random.Next(Callsigns.Length)];
+                call = CallsignFactory.Next(_random, local);
             }
-            while (!used.Add(call) && ++guard < 20);
+            while (!used.Add(call) && ++guard < 40);
+
+            // 拍发速度：多数 18–30，少数新手很慢、高手很快
+            int wpm = mode == EmissionMode.Cw
+                ? (_random.NextDouble() < 0.15 ? 10 + _random.Next(6) : 18 + _random.Next(13))
+                : 0;
+
+            (string message, MorsePlan plan) = BuildTraffic(call, mode, wpm, freq);
 
             list.Add(new Station
             {
                 FreqHz = freq,
                 Mode = mode,
                 Call = call,
+                Country = CallsignFactory.CountryOf(call),
                 LevelDbm = level,
                 FadePhase = _random.NextDouble() * Math.PI * 2,
                 FadeRate = 0.15 + _random.NextDouble() * 0.5,
-                FadeDepthDb = 1.5 + _random.NextDouble() * 3.5
+                FadeDepthDb = 1.5 + _random.NextDouble() * 3.5,
+                Wpm = wpm,
+                Message = message,
+                Plan = plan
             });
         }
 
-        _ = span;
         return list;
+    }
+
+    /// <summary>
+    /// 生成这个台"正在发什么"。真实 CW 段上绝大多数是三种：
+    /// 呼叫 CQ、回答别人的 CQ（报信号报告）、以及 QRL? 问频率是否占用。
+    /// </summary>
+    private (string Message, MorsePlan Plan) BuildTraffic(
+        string call, EmissionMode mode, int wpm, long freq)
+    {
+        if (mode != EmissionMode.Cw)
+            return ("语音通联", MorsePlan.BuildSpeech(_random.Next()));
+
+        string other = CallsignFactory.Next(_random, freq < 10_000_000);
+        double roll = _random.NextDouble();
+
+        string message = roll switch
+        {
+            < 0.55 => $"CQ CQ CQ DE {call} {call} K",
+            < 0.78 => $"{other} DE {call} R UR 5NN 5NN BK",
+            < 0.90 => $"QRL? QRL? DE {call}",
+            _ => $"TEST TEST DE {call}"
+        };
+
+        // 每次发完停一会儿，像真人一样留出对方回答的时间
+        int gap = 3000 + _random.Next(5000);
+
+        return (message, MorsePlan.Build(message, wpm, _random, gap));
     }
 
     private static BandInfo FindBand(long hz)
@@ -352,7 +610,7 @@ public sealed class QsoSimulator
     /// 接收滤波器的选择性：模式对上、频率落在通带内衰减为 0，出带后快速下滑。
     /// 模式不对（比如用 USB 收 CW）额外压 40 dB，和真机一样抄不到。
     /// </summary>
-    private static double FilterAttenuation(Station station, long frequencyHz, EmissionMode mode)
+    private double FilterAttenuation(Station station, long frequencyHz, EmissionMode mode)
     {
         double offset = frequencyHz - station.FreqHz;
 
@@ -370,9 +628,9 @@ public sealed class QsoSimulator
         return att;
     }
 
-    private static double ShapeCw(double offset)
+    private double ShapeCw(double offset)
     {
-        double half = CwBandwidthHz / 2;
+        double half = BandwidthHz / 2;
         double d = Math.Abs(offset);
 
         if (d <= half)
