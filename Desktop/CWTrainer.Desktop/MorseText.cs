@@ -77,6 +77,39 @@ public static class MorseText
         return sb.ToString();
     }
 
+    /// <summary>
+    /// 输入框的实时过滤：只保留电码表里有的字符，字母立刻转大写，
+    /// 中文标点就地折成 ASCII。空白（含换行）原样保留，交给发送前的 Normalize 压缩。
+    /// </summary>
+    public static string SanitizeInput(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return string.Empty;
+
+        var sb = new StringBuilder(raw.Length);
+
+        foreach (char original in raw)
+        {
+            if (char.IsWhiteSpace(original))
+            {
+                sb.Append(original);
+                continue;
+            }
+
+            char ch = original;
+
+            if (PunctuationMap.TryGetValue(ch, out char mapped))
+                ch = mapped;
+
+            ch = char.ToUpperInvariant(ch);
+
+            if (Supported.Contains(ch))
+                sb.Append(ch);
+        }
+
+        return sb.ToString();
+    }
+
     /// <summary>按固定长度切分，供 SEND,TEXT 分片下发。</summary>
     public static IEnumerable<string> Chunk(string text, int size)
     {

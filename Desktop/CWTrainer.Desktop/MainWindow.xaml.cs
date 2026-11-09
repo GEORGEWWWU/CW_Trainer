@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
@@ -78,6 +79,7 @@ public partial class MainWindow : Window
     private bool _txActive;
     private int _txTotal;
     private int _txRemaining;
+    private bool _txSanitizing;
     private CancellationTokenSource? _txCts;
     private DispatcherTimer? _txWatchdog;
     private long _txLastSignalMs;
@@ -241,6 +243,154 @@ public partial class MainWindow : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
         => Close();
+
+    // ---------- 全屏 ----------
+
+    private bool _isFullscreen;
+    private WindowStyle _preFullscreenStyle;
+    private ResizeMode _preFullscreenResize;
+    private WindowState _preFullscreenState;
+    private Rect _preFullscreenBounds;
+
+    private void FullscreenButton_Click(object sender, RoutedEventArgs e)
+        => ToggleFullscreen();
+
+    private void ToggleFullscreen()
+    {
+        if (_isFullscreen)
+            ExitFullscreen();
+        else
+            EnterFullscreen();
+    }
+
+    private void EnterFullscreen()
+    {
+        if (_isFullscreen)
+            return;
+
+        _preFullscreenStyle = WindowStyle;
+        _preFullscreenResize = ResizeMode;
+        _preFullscreenState = WindowState;
+        _preFullscreenBounds = new Rect(Left, Top, Width, Height);
+
+        _isFullscreen = true;
+
+        // 用 "Normal + 显式铺满整个显示器" 而不是 Maximized：
+        // 无边框窗口最大化只会铺到工作区，任务栏那条会留成一块黑边。
+        WindowState = WindowState.Normal;
+        WindowStyle = WindowStyle.None;
+        ResizeMode = ResizeMode.NoResize;
+        ApplyWindowChrome(resizable: false);
+
+        MaxWidth = double.PositiveInfinity;
+        MaxHeight = double.PositiveInfinity;
+
+        Rect monitor = GetCurrentMonitorBounds();
+
+        Left = monitor.Left;
+        Top = monitor.Top;
+        Width = monitor.Width;
+        Height = monitor.Height;
+
+        SetFullscreenIcon(true);
+    }
+
+    private void ExitFullscreen()
+    {
+        if (!_isFullscreen)
+            return;
+
+        _isFullscreen = false;
+
+        WindowState = WindowState.Normal;
+        WindowStyle = _preFullscreenStyle;
+        ResizeMode = _preFullscreenResize;
+        ApplyWindowChrome(resizable: true);
+
+        Left = _preFullscreenBounds.Left;
+        Top = _preFullscreenBounds.Top;
+        Width = _preFullscreenBounds.Width;
+        Height = _preFullscreenBounds.Height;
+
+        if (_preFullscreenState == WindowState.Maximized)
+            WindowState = WindowState.Maximized;
+
+        SetFullscreenIcon(false);
+    }
+
+    /// <summary>当前窗口所在显示器的物理边界，换算成 WPF 的 DIP。</summary>
+    private Rect GetCurrentMonitorBounds()
+    {
+        IntPtr handle = new WindowInteropHelper(this).Handle;
+
+        var info = new MonitorInfo { cbSize = Marshal.SizeOf<MonitorInfo>() };
+        IntPtr monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
+
+        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info))
+            return new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+
+        double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        if (scale <= 0)
+            scale = 1;
+
+        return new Rect(
+            info.rcMonitor.Left / scale,
+            info.rcMonitor.Top / scale,
+            (info.rcMonitor.Right - info.rcMonitor.Left) / scale,
+            (info.rcMonitor.Bottom - info.rcMonitor.Top) / scale);
+    }
+
+    private const uint MonitorDefaultToNearest = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorRect
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int cbSize;
+        public MonitorRect rcMonitor;
+        public MonitorRect rcWork;
+        public uint dwFlags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    /// <summary>
+    /// 全屏时把 WindowChrome 的缩放边收掉，否则内容会被 6px 的隐形边挤一圈。
+    /// </summary>
+    private void ApplyWindowChrome(bool resizable)
+    {
+        var chrome = new WindowChrome
+        {
+            CaptionHeight = 0,
+            ResizeBorderThickness = new Thickness(resizable ? 6 : 0),
+            GlassFrameThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(0),
+            UseAeroCaptionButtons = false
+        };
+
+        WindowChrome.SetWindowChrome(this, chrome);
+    }
+
+    private void SetFullscreenIcon(bool fullscreen)
+    {
+        if (FullscreenIcon == null)
+            return;
+
+        FullscreenIcon.Data = Geometry.Parse(fullscreen
+            // 收缩：四角朝内
+            ? "M9,4.5 L9,9 L4.5,9 M15,4.5 L15,9 L19.5,9 M19.5,15 L15,15 L15,19.5 M4.5,15 L9,15 L9,19.5"
+            // 展开：四角朝外
+            : "M9,4.5 L4.5,4.5 L4.5,9 M15,4.5 L19.5,4.5 L19.5,9 M19.5,15 L19.5,19.5 L15,19.5 M9,19.5 L4.5,19.5 L4.5,15");
+    }
 
     private void ToggleMaximize()
     {
@@ -1284,14 +1434,37 @@ public partial class MainWindow : Window
 
     private void TxInput_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (TxCountText == null)
+        if (TxCountText == null || _txSanitizing)
             return;
 
-        int raw = TxInput.Text.Length;
-        string usable = MorseText.Normalize(TxInput.Text, out _);
-        TxCountText.Text = usable.Length == raw
-            ? $"{raw} 字符"
-            : $"{usable.Length} / {raw} 字符";
+        // 只允许电码表里有的字符，字母实时强制大写，中文标点就地折算。
+        string raw = TxInput.Text;
+        string clean = MorseText.SanitizeInput(raw);
+
+        if (clean != raw)
+        {
+            int caret = TxInput.CaretIndex;
+            int removed = raw.Length - clean.Length;
+
+            _txSanitizing = true;
+
+            try
+            {
+                TxInput.Text = clean;
+                TxInput.CaretIndex = Math.Clamp(caret - removed, 0, clean.Length);
+            }
+            finally
+            {
+                _txSanitizing = false;
+            }
+        }
+
+        int usable = MorseText.Normalize(clean, out _).Length;
+        int total = clean.TrimEnd().Length;
+
+        TxCountText.Text = usable == total
+            ? $"{total} 字符"
+            : $"{usable} / {total} 字符";
     }
 
     private void TxInput_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -1529,6 +1702,14 @@ public partial class MainWindow : Window
             return true;
         }
 
+        // 旧固件不认识 SEND 指令：别让它卡在“发送中”等看门狗
+        if (_txActive && line.StartsWith("ERROR,", StringComparison.Ordinal))
+        {
+            AddLog("设备拒绝了发送指令，可能固件版本低于 3.0.0。");
+            PostUi(EndSend);
+            return true;
+        }
+
         return false;
     }
 
@@ -1585,6 +1766,13 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F11)
+        {
+            ToggleFullscreen();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Escape)
             return;
 
@@ -1596,6 +1784,11 @@ public partial class MainWindow : Window
         else if (DictionaryOverlay.Visibility == Visibility.Visible)
         {
             HideDictionary();
+            e.Handled = true;
+        }
+        else if (_isFullscreen)
+        {
+            ExitFullscreen();
             e.Handled = true;
         }
     }

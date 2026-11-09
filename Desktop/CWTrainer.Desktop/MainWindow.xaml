@@ -149,6 +149,18 @@
                         </Viewbox>
                     </Button>
 
+                    <Button x:Name="FullscreenButton"
+                            Style="{StaticResource WindowButton}"
+                            Click="FullscreenButton_Click"
+                            ToolTip="全屏（F11）"
+                            AutomationProperties.Name="全屏">
+                        <Viewbox Width="14" Height="14">
+                            <Path x:Name="FullscreenIcon"
+                                  Style="{StaticResource IconStroke}"
+                                  Data="M9,4.5 L4.5,4.5 L4.5,9 M15,4.5 L19.5,4.5 L19.5,9 M19.5,15 L19.5,19.5 L15,19.5 M9,19.5 L4.5,19.5 L4.5,15"/>
+                        </Viewbox>
+                    </Button>
+
                     <Button Style="{StaticResource WindowButton}"
                             Click="CloseButton_Click"
                             ToolTip="关闭">
@@ -581,7 +593,8 @@
                                            Text="输入要发送的文字，Ctrl+Enter 发送"
                                            FontSize="13.5"
                                            Foreground="{DynamicResource Ink3}"
-                                           Margin="14,12,0,0"
+                                           Margin="11,17,11,0"
+                                           VerticalAlignment="Top"
                                            IsHitTestVisible="False">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">

@@ -1,5 +1,5 @@
 /*
-  CW TRAINER V2 - ESP32-S3-N16R8          CW训练器 V2 - ESP32-S3-N16R8
+  CW TRAINER V3 - ESP32-S3-N16R8          CW训练器 V3 - ESP32-S3-N16R8
   Arduino-ESP32 Core: 2.0.17-cn          Arduino-ESP32 核心库版本：2.0.17-cn
 
   Wiring (the final left/right convention):    接线定义（最终左右键约定）：
