@@ -22,9 +22,11 @@
     SEND,TEXT,<ascii>                          追加文本，单行约 80 字节
     SEND,END                                   文本给完，开始按当前 WPM 拍发
     SEND,STOP                                  中止发送并清空队列
+    PANEL,QSO,<Hz>,<CW|USB|LSB>,<dBm>,<0|1>     更新通联面板（最后一项为 RX）
+    PANEL,OFF                                  切回本地练习面板
 
   Device events:                               设备上报事件：
-    READY,1,CWTRAINER,3.0.0                    READY,1,CWTRAINER,3.0.0
+    READY,1,CWTRAINER,3.3.0,PANEL              握手并声明面板支持
     STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER  STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER
     KEY,DIT,1 / KEY,DIT,0                      KEY,DIT,1 / KEY,DIT,0
     KEY,DAH,1 / KEY,DAH,0                      KEY,DAH,1 / KEY,DAH,0
@@ -80,15 +82,19 @@
 #include <Preferences.h>
 #include <stdlib.h>
 #include <string.h>
+#include "PanelDisplay.h"
 
 // ---------------- Pins ----------------
 static constexpr uint8_t PIN_DIT = 5;      // LEFT paddle: dot
 static constexpr uint8_t PIN_DAH = 4;      // RIGHT paddle: dash
 static constexpr uint8_t PIN_BUZZER = 6;   // Active HIGH buzzer module
+static constexpr uint8_t PIN_TX_LED = 7;
+static constexpr uint8_t PIN_RX_LED = 10;
 
 // ---------------- Limits ----------------
 static constexpr uint32_t DEBOUNCE_US = 4000UL;
 static constexpr uint32_t HOST_TIMEOUT_MS = 6000UL;
+static constexpr uint32_t PANEL_TIMEOUT_MS = 750;
 static constexpr uint16_t DEFAULT_WPM = 15;
 static constexpr uint16_t MIN_WPM = 5;
 static constexpr uint16_t MAX_WPM = 60;
@@ -434,7 +440,7 @@ static void updatePaddleKeyer(uint32_t nowUs, bool ditChanged, bool dahChanged) 
   }
 }
 
-// ---------------- Morse table (TX) ----------------
+// ---------------- Morse table (TX and local decode) ----------------
 struct MorseRow {
   char symbol;
   const char* code;
@@ -650,6 +656,129 @@ static void updateTx(uint32_t nowUs) {
   }
 }
 
+// ---------------- Hardware panel ----------------
+static constexpr uint32_t PANEL_DECODE_TIMEOUT_US = 8000000UL;
+static char panelText[PANEL_TEXT_CAPACITY + 1]{};
+static char panelSymbols[8]{};  // The longest entry in MORSE_TABLE has seven elements.
+static uint8_t panelSymbolCount = 0;
+static bool panelDecodeOverflow = false;
+static bool panelWordBreak = false;
+static bool panelHasMark = false;
+static uint32_t panelMarkStartUs = 0;
+static uint32_t panelMarkEndUs = 0;
+static uint32_t panelDotUs = 0;
+
+static void appendPanelCharacter(char character) {
+  size_t length = strlen(panelText);
+  if (length == PANEL_TEXT_CAPACITY) {
+    memmove(panelText, panelText + 1, --length);
+  }
+  panelText[length] = character;
+  panelText[length + 1] = '\0';
+}
+
+static bool commitPanelCharacter() {
+  if (panelSymbolCount == 0) return false;
+  panelSymbols[panelSymbolCount] = '\0';
+  char character = '?';
+  if (!panelDecodeOverflow) {
+    for (const MorseRow& row : MORSE_TABLE) {
+      if (strcmp(row.code, panelSymbols) == 0) {
+        character = row.symbol;
+        break;
+      }
+    }
+  }
+  if (panelWordBreak && panelText[0] != '\0') appendPanelCharacter(' ');
+  appendPanelCharacter(character);
+  panelSymbolCount = 0;
+  panelDecodeOverflow = false;
+  panelWordBreak = false;
+  return true;
+}
+
+static bool updatePanelDecode(uint32_t nowUs, bool mark, bool wasMark) {
+  bool changed = false;
+  if (!wasMark && panelHasMark) {
+    const uint32_t gapUs = nowUs - panelMarkEndUs;
+    if (gapUs >= 2 * panelDotUs) changed = commitPanelCharacter();
+    if (gapUs >= PANEL_DECODE_TIMEOUT_US) {
+      panelText[0] = '\0';
+      panelHasMark = false;
+      changed = true;
+    }
+  }
+
+  if (mark && !wasMark) {
+    if (panelHasMark && nowUs - panelMarkEndUs >= 6 * panelDotUs) panelWordBreak = true;
+    panelMarkStartUs = nowUs;
+    panelDotUs = dotDurationUs();
+  } else if (!mark && wasMark) {
+    if (panelSymbolCount < sizeof(panelSymbols) - 1) {
+      panelSymbols[panelSymbolCount++] = nowUs - panelMarkStartUs < 2 * panelDotUs ? '.' : '-';
+    } else {
+      panelDecodeOverflow = true;
+    }
+    panelMarkEndUs = nowUs;
+    panelHasMark = true;
+  }
+  return changed;
+}
+
+static uint32_t panelUpdatedAt = 0;
+static PanelFrame qsoPanel{};
+
+static void handlePanelCommand(const char* line) {
+  if (strcmp(line, "PANEL,OFF") == 0) {
+    qsoPanel.qso = false;
+    return;
+  }
+  if (!hostActive()) return;
+
+  long frequency;
+  char mode[4];
+  int dbm, rx, end = 0;
+  if (sscanf(line, "PANEL,QSO,%8ld,%3[A-Z],%4d,%1d%n",
+             &frequency, mode, &dbm, &rx, &end) != 4 || line[end] != '\0' ||
+      frequency < 0 || frequency > 30000000L || dbm < -127 || dbm > -13 ||
+      (rx != 0 && rx != 1)) return;
+
+  if (strcmp(mode, "CW") == 0) qsoPanel.mode = "CW";
+  else if (strcmp(mode, "USB") == 0) qsoPanel.mode = "USB";
+  else if (strcmp(mode, "LSB") == 0) qsoPanel.mode = "LSB";
+  else return;
+
+  qsoPanel.frequencyHz = (uint32_t)frequency;
+  qsoPanel.signalDbm = (int8_t)dbm;
+  qsoPanel.rx = rx == 1;
+  qsoPanel.qso = true;
+  panelUpdatedAt = millis();
+}
+
+static void updatePanel(uint32_t nowUs) {
+  static PanelFrame previous{};
+  const bool tx = currentMarkActive();
+  if (qsoPanel.qso && (!hostWasActive || millis() - panelUpdatedAt >= PANEL_TIMEOUT_MS)) {
+    qsoPanel.qso = false;
+  }
+  const bool rx = qsoPanel.qso && qsoPanel.rx && !tx && !txIsSending();
+  if (previous.rx && !rx) digitalWrite(PIN_RX_LED, LOW);
+  if (tx != previous.tx) digitalWrite(PIN_TX_LED, tx ? HIGH : LOW);
+  if (rx && !previous.rx) digitalWrite(PIN_RX_LED, HIGH);
+
+  const bool decodedChanged = updatePanelDecode(nowUs, tx, previous.tx);
+  PanelFrame frame = qsoPanel.qso ? qsoPanel : PanelFrame{};
+  frame.keyerMode = modeName(keyerMode);
+  frame.wpm = cwWpm;
+  frame.tx = tx;
+  frame.rx = rx;
+  if (!(frame == previous) || (!frame.qso && decodedChanged)) {
+    if (!frame.qso) strcpy(frame.decoded, panelText);
+    previous = frame;
+    publishPanelFrame(frame);
+  }
+}
+
 // ---------------- Protocol ----------------
 static void acknowledge(const char* key, const char* value) {
   char line[64];
@@ -665,7 +794,14 @@ static void handleCommand(char* line) {
     sendLine("BYE,BUZZER");
     revokeHostLease();
     hostWasActive = false;
+    qsoPanel.qso = false;
     flushSettingsIfDue(true);   // 退出前把还没落盘的参数写掉
+    return;
+  }
+
+  // 面板遥测有独立的超时，不能替代主机心跳，也不逐帧回包。
+  if (strncmp(line, "PANEL,", 6) == 0) {
+    handlePanelCommand(line);
     return;
   }
 
@@ -673,7 +809,8 @@ static void handleCommand(char* line) {
   refreshHostLease();
 
   if (strcmp(line, "HELLO,1") == 0) {
-    sendLine("READY,1,CWTRAINER,3.0.0");
+    qsoPanel.qso = false;
+    sendLine("READY,1,CWTRAINER,3.3.0,PANEL");
     sendStatus();
     return;
   }
@@ -850,6 +987,10 @@ static void updateHostLease() {
 void setup() {
   pinMode(PIN_BUZZER, OUTPUT);
   digitalWrite(PIN_BUZZER, LOW);
+  pinMode(PIN_TX_LED, OUTPUT);
+  digitalWrite(PIN_TX_LED, LOW);
+  pinMode(PIN_RX_LED, OUTPUT);
+  digitalWrite(PIN_RX_LED, LOW);
 
   initPaddle(ditInput, PIN_DIT);
   initPaddle(dahInput, PIN_DAH);
@@ -857,6 +998,7 @@ void setup() {
   loadSettings();   // 恢复上次的 WPM 与键控模式
 
   Serial.begin(115200);
+  beginPanelDisplay();
 }
 
 void loop() {
@@ -889,6 +1031,7 @@ void loop() {
   // 每个主循环都按“租约 + 当前键状态”重算一次引脚，
   // 任何路径留下的状态都不会导致永久静音。
   updateBuzzerOutput();
+  updatePanel(nowUs);
 
   flushSettingsIfDue(false);
 }

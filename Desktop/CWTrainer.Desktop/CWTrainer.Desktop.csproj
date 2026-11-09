@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
-    <Version>3.2.0</Version>
+    <Version>3.3.0</Version>
     <!-- 发布产物固定叫 CWT.exe -->
     <AssemblyName>CWT</AssemblyName>
     <PublishSingleFile>true</PublishSingleFile>

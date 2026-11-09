@@ -460,6 +460,7 @@ public partial class MainWindow : Window
 
         try
         {
+            _panelSupported = false;
             var port = new SerialPort(portName, BaudRate, Parity.None, 8, StopBits.One)
             {
                 Encoding = Encoding.ASCII,
@@ -604,6 +605,7 @@ public partial class MainWindow : Window
 
         if (line.StartsWith("READY,1,CWTRAINER,", StringComparison.Ordinal))
         {
+            _panelSupported = line.Split(',').Skip(4).Contains("PANEL", StringComparer.Ordinal);
             _handshakeSource?.TrySetResult(true);
             _isConnected = true;
             string? name = _portName;
@@ -910,6 +912,7 @@ public partial class MainWindow : Window
     private void StartHeartbeat()
     {
         StopHeartbeat();
+        StartPanelUpdates();
 
         _heartbeatTimer = new Timer(
             _ =>
@@ -969,6 +972,7 @@ public partial class MainWindow : Window
 
     private void StopHeartbeat()
     {
+        StopPanelUpdates();
         _heartbeatTimer?.Dispose();
         _heartbeatTimer = null;
     }
@@ -1172,6 +1176,7 @@ public partial class MainWindow : Window
     /// </summary>
     public void EmergencyHandoff()
     {
+        StopPanelUpdates();
         SerialPort? port = _port;
 
         if (port is null || !port.IsOpen)

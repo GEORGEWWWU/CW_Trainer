@@ -46,6 +46,28 @@ public sealed class QsoAudioEngine : IDisposable
     /// <summary>音频时钟（毫秒）。界面用它给瀑布上的发射柱定位。</summary>
     public double NowMs => _synth.ElapsedMs;
 
+    /// <summary>Inspect the same station key/speech plans used by the synthesizer.</summary>
+    public bool HasRecentStationSignal(int lookbackMs)
+    {
+        if (!_running || _handle == IntPtr.Zero)
+            return false;
+
+        AudioScene scene = _scene;
+        long endMs = (long)_synth.ElapsedMs;
+        foreach (AudioVoice voice in scene.Voices)
+        {
+            long end = endMs - (long)Math.Ceiling(voice.PhaseMs);
+            long start = Math.Max(0, end - lookbackMs);
+            for (long ms = end - 1; ms >= start; ms--)
+            {
+                if (voice.Key[(int)(ms % voice.CycleMs)])
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     public void Start()
     {
         if (_running)

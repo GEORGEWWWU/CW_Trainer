@@ -113,6 +113,7 @@ public partial class MainWindow
     private void StopQso()
     {
         _qsoTimer?.Stop();
+        _panelSnapshot = null;
         _qsoAudio?.Stop();
         _audio.Stop();
     }
@@ -158,6 +159,8 @@ public partial class MainWindow
             _qsoAudioCounter = 0;
             PushAudioScene();
         }
+
+        UpdatePanelSnapshot();
 
         // 电台列表 2 秒重建一次：信号强度会变，排序也会跟着变
         if (++_qsoActivityCounter >= 40)
