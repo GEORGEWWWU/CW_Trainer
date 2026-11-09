@@ -20,7 +20,7 @@
     SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B        SET,MODE,STRAIGHT|IAMBIC_A|IAMBIC_B
 
   Device events:                               设备上报事件：
-    READY,1,CWTRAINER,2.0.0                    READY,1,CWTRAINER,2.0.0
+    READY,1,CWTRAINER,2.2.0                    READY,1,CWTRAINER,2.2.0
     STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER  STATUS,WPM,15,MODE,IAMBIC_B,OUTPUT,BUZZER
     KEY,DIT,1 / KEY,DIT,0                      KEY,DIT,1 / KEY,DIT,0
     KEY,DAH,1 / KEY,DAH,0                      KEY,DAH,1 / KEY,DAH,0
@@ -49,10 +49,19 @@
   - While the lease is expired, nothing is written to USB at all, so a
     closed/unread CDC port can never block loop().
   - 租约失效期间完全不向 USB 写数据，关闭或无人读取的 CDC 端口不会阻塞 loop()。
+
+  V2.2 settings:                                 V2.2 参数持久化：
+  - WPM and keyer mode are stored in NVS (namespace "cwtrainer") and restored
+    at boot, so the keyer keeps its speed across power cycles.
+  - WPM 与键控模式存入 NVS（命名空间 cwtrainer），上电自动恢复。
+  - Writes are debounced 300 ms so dragging the speed slider does not wear
+    out flash; BYE forces an immediate flush.
+  - 写盘延迟 300 毫秒，拖动速度滑块不会磨损 flash；BYE 时会立即落盘。
 */
 
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -67,6 +76,9 @@ static constexpr uint32_t HOST_TIMEOUT_MS = 6000UL;
 static constexpr uint16_t DEFAULT_WPM = 15;
 static constexpr uint16_t MIN_WPM = 5;
 static constexpr uint16_t MAX_WPM = 60;
+
+// 参数落盘延迟：拖动 WPM 滑块会连续下发 SET，立刻写会把 flash 写爆。
+static constexpr uint32_t SETTINGS_SAVE_DELAY_MS = 300;
 
 // ---------------- Enums ----------------
 enum KeyerMode : uint8_t {
@@ -133,6 +145,17 @@ static bool straightToneActive = false;
 
 static char commandBuffer[96];
 static size_t commandLength = 0;
+
+// ---------------- Settings (NVS) ----------------
+static Preferences prefs;
+static bool prefsReady = false;
+
+// 已落盘的影子值，用来避免重复写同一个值
+static uint16_t savedWpm = DEFAULT_WPM;
+static uint8_t savedMode = (uint8_t)MODE_IAMBIC_B;
+
+static bool settingsDirty = false;
+static uint32_t settingsDirtySinceMs = 0;
 
 // ---------------- Utility ----------------
 static uint32_t dotDurationUs() {
@@ -217,6 +240,48 @@ static void sendElementEvent(bool isDit, uint32_t durationUs) {
   snprintf(line, sizeof(line), "ELEMENT,%s,%lu",
            isDit ? "DIT" : "DAH", (unsigned long)durationUs);
   sendLine(line);
+}
+
+// ---------------- Settings persistence ----------------
+static void loadSettings() {
+  prefsReady = prefs.begin("cwtrainer", false);
+
+  if (!prefsReady) return;
+
+  const uint16_t storedWpm = prefs.getUShort("wpm", DEFAULT_WPM);
+  const uint8_t storedMode = prefs.getUChar("mode", (uint8_t)MODE_IAMBIC_B);
+
+  // 越界或损坏一律回默认，不让脏数据把设备卡死。
+  if (storedWpm >= MIN_WPM && storedWpm <= MAX_WPM) cwWpm = storedWpm;
+  if (storedMode <= (uint8_t)MODE_IAMBIC_B) keyerMode = (KeyerMode)storedMode;
+
+  savedWpm = cwWpm;
+  savedMode = (uint8_t)keyerMode;
+}
+
+static void markSettingsDirty() {
+  if (!prefsReady) return;
+  settingsDirty = true;
+  settingsDirtySinceMs = millis();
+}
+
+// force = true 时立刻写（退出前用），否则等 SETTINGS_SAVE_DELAY_MS 静默后再写。
+static void flushSettingsIfDue(bool force) {
+  if (!prefsReady || !settingsDirty) return;
+  if (!force && (uint32_t)(millis() - settingsDirtySinceMs) < SETTINGS_SAVE_DELAY_MS) return;
+
+  settingsDirty = false;
+
+  if (cwWpm != savedWpm) {
+    prefs.putUShort("wpm", cwWpm);
+    savedWpm = cwWpm;
+  }
+
+  const uint8_t modeNow = (uint8_t)keyerMode;
+  if (modeNow != savedMode) {
+    prefs.putUChar("mode", modeNow);
+    savedMode = modeNow;
+  }
 }
 
 // ---------------- Paddle debounce ----------------
@@ -364,6 +429,7 @@ static void handleCommand(char* line) {
     sendLine("BYE,BUZZER");
     revokeHostLease();
     hostWasActive = false;
+    flushSettingsIfDue(true);   // 退出前把还没落盘的参数写掉
     return;
   }
 
@@ -371,7 +437,7 @@ static void handleCommand(char* line) {
   refreshHostLease();
 
   if (strcmp(line, "HELLO,1") == 0) {
-    sendLine("READY,1,CWTRAINER,2.1.0");
+    sendLine("READY,1,CWTRAINER,2.2.0");
     sendStatus();
     return;
   }
@@ -416,6 +482,7 @@ static void handleCommand(char* line) {
       return;
     }
     cwWpm = (uint16_t)parsed;
+    markSettingsDirty();
     acknowledge("WPM", value);
     sendStatus();
     return;
@@ -434,6 +501,7 @@ static void handleCommand(char* line) {
       resetKeyerForModeChange();
       keyerMode = newMode;
       updateBuzzerOutput();
+      markSettingsDirty();
     }
     acknowledge("MODE", modeName(keyerMode));
     sendStatus();
@@ -495,6 +563,8 @@ void setup() {
   initPaddle(ditInput, PIN_DIT);
   initPaddle(dahInput, PIN_DAH);
 
+  loadSettings();   // 恢复上次的 WPM 与键控模式
+
   Serial.begin(115200);
 }
 
@@ -519,4 +589,6 @@ void loop() {
   // 每个主循环都按“租约 + 当前键状态”重算一次引脚，
   // 任何路径留下的状态都不会导致永久静音。
   updateBuzzerOutput();
+
+  flushSettingsIfDue(false);
 }

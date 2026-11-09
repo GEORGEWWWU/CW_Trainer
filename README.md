@@ -160,8 +160,8 @@ dotnet publish -c Release -r win-x64 --self-contained false     # 单文件
 | `PING` | 心跳（每秒一次） |
 | `GET` | 查询状态 |
 | `SET,OUTPUT,BUZZER\|PC\|BOTH` | 声音输出 |
-| `SET,WPM,5..60` | 速度 |
-| `SET,MODE,STRAIGHT\|IAMBIC_A\|IAMBIC_B` | 键控模式 |
+| `SET,WPM,5..60` | 速度（V2.2 起写入 NVS，重新上电仍生效） |
+| `SET,MODE,STRAIGHT\|IAMBIC_A\|IAMBIC_B` | 键控模式（V2.2 起写入 NVS） |
 | `BYE` | 退出，设备交还实体蜂鸣器 |
 
 **设备 → 上位机**
@@ -216,9 +216,9 @@ CW_Trainer/
 
 ## 已知限制
 
-1. **必须烧录 V2.1 固件**（`Firmware/CW_Trainer_V2/CW_Trainer_V2.ino`）。V2.0 固件的输出模式是一次性锁存，关闭或强杀软件后会永久静音、串口还可能被写阻塞拖死只能按 RST；V2.1 用主机租约彻底解决这两件事。烧录前仍建议先按一次 RST。
+1. **必须烧录 V2.2 固件**（`Firmware/CW_Trainer_V2/CW_Trainer_V2.ino`）。V2.0 的输出模式是一次性锁存，关闭或强杀软件后会永久静音、串口还可能被写阻塞拖死只能按 RST；V2.1 起改用主机租约，V2.2 再加上 WPM/模式的 NVS 持久化。烧录前建议先按一次 RST。
 2. **Iambic A/B 是联调原型**，挤压/释放的标准行为还没有用测试矩阵完整验证。
-3. **WPM 与模式不持久化**，设备重启回到 15 WPM / Iambic B，由软件连接后重新下发。
+3. **WPM 与模式需要 V2.2 固件才持久化**。烧了 V2.2 之后设备自己记住速度，软件连上会读取并同步界面，不会反向下发覆盖。
 4. **电脑发声有少量延迟**（USB + 音频缓冲），只影响听感，不影响设备侧时序。
 5. 有源蜂鸣器只能开关，实体侧无法调音调与音量；音调、音量只作用于电脑音频。
 
