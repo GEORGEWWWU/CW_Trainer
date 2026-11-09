@@ -37,6 +37,18 @@
   - OUTPUT defaults to BUZZER at boot and falls back to BUZZER if host
     heartbeat is lost for 6 seconds.
   - 上电默认输出为蜂鸣器；若上位机心跳丢失超过6秒，自动切回蜂鸣器输出。
+
+  V2.1 host lease:                               V2.1 主机租约：
+  - The host holds a *lease*, not a latch. HELLO / PING / GET / SET all
+    renew it; BYE or lease expiry revokes it immediately. The buzzer level
+    is recomputed from the lease every loop, so no command sequence can
+    leave the keyer permanently mute.
+  - 上位机持有的是“租约”而非一次性开关：HELLO / PING / GET / SET 都会续租，
+    BYE 或租约到期立即失效。蜂鸣器电平每个主循环都按租约重算，
+    因此任何命令顺序都不可能让电键永久静音。
+  - While the lease is expired, nothing is written to USB at all, so a
+    closed/unread CDC port can never block loop().
+  - 租约失效期间完全不向 USB 写数据，关闭或无人读取的 CDC 端口不会阻塞 loop()。
 */
 
 
@@ -89,6 +101,26 @@ static KeyerMode keyerMode = MODE_IAMBIC_B;
 static OutputMode outputMode = OUTPUT_BUZZER;
 static uint16_t cwWpm = DEFAULT_WPM;
 
+// ---------------- Host lease ----------------
+// 主机租约。0 表示从未连接 / 已失效。
+static uint32_t hostLeaseUntilMs = 0;
+static bool hostWasActive = false;
+static uint8_t buzzerLevel = 0;
+
+static bool hostActive() {
+  // 0 是“从未连接 / 已撤销”的哨兵，避免 millis() 回绕后误判为有效租约。
+  if (hostLeaseUntilMs == 0) return false;
+  return (int32_t)(millis() - hostLeaseUntilMs) < 0;
+}
+
+static void refreshHostLease() {
+  hostLeaseUntilMs = millis() + HOST_TIMEOUT_MS;
+}
+
+static void revokeHostLease() {
+  hostLeaseUntilMs = 0;
+}
+
 static KeyerState keyerState = STATE_IDLE;
 static uint32_t stateDeadlineUs = 0;
 static bool ditMemory = false;
@@ -98,9 +130,6 @@ static bool hasLastElement = false;
 static bool squeezeSeen = false;
 static bool iambicBExtra = false;
 static bool straightToneActive = false;
-
-static bool hostConnected = false;
-static uint32_t lastHostPingMs = 0;
 
 static char commandBuffer[96];
 static size_t commandLength = 0;
@@ -132,8 +161,15 @@ static const char* outputName(OutputMode mode) {
   }
 }
 
+// 实际生效的输出模式：租约失效时强制回落到实体蜂鸣器。
+// 这样“上位机请求 PC 发声”与“上位机还活着”两件事不会互相残留。
+static OutputMode effectiveOutput() {
+  return hostActive() ? outputMode : OUTPUT_BUZZER;
+}
+
 static bool hardwareOutputEnabled() {
-  return outputMode == OUTPUT_BUZZER || outputMode == OUTPUT_BOTH;
+  const OutputMode mode = effectiveOutput();
+  return mode == OUTPUT_BUZZER || mode == OUTPUT_BOTH;
 }
 
 static bool currentMarkActive() {
@@ -141,13 +177,17 @@ static bool currentMarkActive() {
   return keyerState == STATE_MARK;
 }
 
+// 电平按“当前状态”重算，只有变化时才写引脚。
 static void updateBuzzerOutput() {
-  const bool on = hardwareOutputEnabled() && currentMarkActive();
-  digitalWrite(PIN_BUZZER, on ? HIGH : LOW);
+  const uint8_t level = (hardwareOutputEnabled() && currentMarkActive()) ? 1 : 0;
+  if (level == buzzerLevel) return;
+  buzzerLevel = level;
+  digitalWrite(PIN_BUZZER, level ? HIGH : LOW);
 }
 
 static void sendLine(const char* line) {
-  if (!hostConnected) return;
+  // 租约失效时一次都不写 USB：端口被关闭或无人读取也不会阻塞主循环。
+  if (!hostActive()) return;
   // All protocol lines are short; the keying engine never waits for a reply.
   if (Serial.availableForWrite() >= (int)strlen(line) + 2) {
     Serial.println(line);
@@ -155,12 +195,12 @@ static void sendLine(const char* line) {
 }
 
 static void sendStatus() {
-  if (!hostConnected) return;
   char line[96];
   snprintf(line, sizeof(line), "STATUS,WPM,%u,MODE,%s,OUTPUT,%s",
-           (unsigned)cwWpm, modeName(keyerMode), outputName(outputMode));
+           (unsigned)cwWpm, modeName(keyerMode), outputName(effectiveOutput()));
   sendLine(line);
 }
+
 
 static void sendKeyEvent(const char* paddle, bool pressed) {
   char line[40];
@@ -173,7 +213,6 @@ static void sendToneEvent(bool on) {
 }
 
 static void sendElementEvent(bool isDit, uint32_t durationUs) {
-  if (!hostConnected) return;
   char line[48];
   snprintf(line, sizeof(line), "ELEMENT,%s,%lu",
            isDit ? "DIT" : "DAH", (unsigned long)durationUs);
@@ -319,24 +358,25 @@ static void acknowledge(const char* key, const char* value) {
 
 static void handleCommand(char* line) {
   if (strcmp(line, "BYE") == 0) {
+    // 先把回执发出去（此时租约还有效），再立刻失效。
     outputMode = OUTPUT_BUZZER;
     updateBuzzerOutput();
     sendLine("BYE,BUZZER");
-    hostConnected = false;
+    revokeHostLease();
+    hostWasActive = false;
     return;
   }
 
+  // 其它任何合法指令都算“上位机还活着”，续一次租约。
+  refreshHostLease();
+
   if (strcmp(line, "HELLO,1") == 0) {
-    hostConnected = true;
-    lastHostPingMs = millis();
-    sendLine("READY,1,CWTRAINER,2.0.0");
+    sendLine("READY,1,CWTRAINER,2.1.0");
     sendStatus();
     return;
   }
 
   if (strcmp(line, "PING") == 0) {
-    hostConnected = true;
-    lastHostPingMs = millis();
     sendLine("PONG");
     return;
   }
@@ -435,14 +475,16 @@ static void readSerialCommands() {
 }
 
 
-static void checkHostTimeout() {
-  if (hostConnected && (uint32_t)(millis() - lastHostPingMs) > HOST_TIMEOUT_MS) {
-    hostConnected = false;
-    // Safe fallback: if the PC app exits or USB is unplugged, restore the
-    // standalone physical buzzer so the keyer never becomes permanently mute.
+static void updateHostLease() {
+  const bool active = hostActive();
+
+  if (hostWasActive && !active) {
+    // 租约刚到期：把请求的输出模式也一并清掉，
+    // 免得下一次连接之前一直卡在“请求 PC 发声但没人发声”的静音态。
     outputMode = OUTPUT_BUZZER;
-    updateBuzzerOutput();
   }
+
+  hostWasActive = active;
 }
 
 // ---------------- Arduino entry points ----------------
@@ -472,5 +514,9 @@ void loop() {
   }
 
   readSerialCommands();
-  checkHostTimeout();
+  updateHostLease();
+
+  // 每个主循环都按“租约 + 当前键状态”重算一次引脚，
+  // 任何路径留下的状态都不会导致永久静音。
+  updateBuzzerOutput();
 }

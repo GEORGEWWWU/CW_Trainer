@@ -26,6 +26,12 @@ public partial class MainWindow : Window
     /// <summary>解码状态机的推进周期。</summary>
     private const int DecodeTickMs = 20;
 
+    /// <summary>
+    /// 多久没收到 PONG 就判定“失联”。
+    /// 固件在 6 秒无心跳时接管蜂鸣器，这里必须早于它，界面才不会说谎。
+    /// </summary>
+    private const int LinkLostMs = 3000;
+
     /// <summary>拖动 WPM 滑块时的下发延迟，避免每格都发命令。</summary>
     private const int WpmApplyDelayMs = 280;
 
@@ -51,6 +57,15 @@ public partial class MainWindow : Window
     private string? _portName;
     private TaskCompletionSource<bool>? _handshakeSource;
     private TaskCompletionSource<bool>? _byeSource;
+
+    /// <summary>最近一次收到 PONG 的时刻（TickCount64）。</summary>
+    private long _lastPongMs;
+
+    /// <summary>心跳已断，但串口还开着。</summary>
+    private volatile bool _linkLost;
+
+    /// <summary>串口已连上的端口名，用于“失联”时仍然显示它。</summary>
+    private string? _connectedPort;
 
     private volatile bool _isConnected;
     private bool _suppressUiEvents;
@@ -331,6 +346,8 @@ public partial class MainWindow : Window
             }
 
             _isConnected = true;
+            _linkLost = false;
+            _lastPongMs = Environment.TickCount64;
             SetConnectionUi(true, portName);
             StartHeartbeat();
             StartDecodeTimer();
@@ -467,7 +484,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (line == "PONG") return;
+        if (line == "PONG")
+        {
+            _lastPongMs = Environment.TickCount64;
+            RecoverLinkIfNeeded();
+            return;
+        }
 
         if (line.StartsWith("ACK,", StringComparison.Ordinal))
         {
@@ -710,11 +732,54 @@ public partial class MainWindow : Window
         _heartbeatTimer = new Timer(
             _ =>
             {
-                if (_isConnected) SendCommand("PING");
+                if (!_isConnected) return;
+
+                SendCommand("PING");
+
+                // 发出 PING 后若连续几拍都没收到 PONG，就认为设备已不再响应。
+                // 此时串口可能还“开着”，但设备要么挂了、要么被别的程序抢走。
+                long silentMs = Environment.TickCount64 - Volatile.Read(ref _lastPongMs);
+
+                if (silentMs > LinkLostMs)
+                    MarkLinkLost(silentMs);
             },
             null,
             HeartbeatMs,
             HeartbeatMs);
+    }
+
+    /// <summary>设备不再回心跳：界面切到第三种状态，并停掉解码。</summary>
+    private void MarkLinkLost(long silentMs)
+    {
+        if (_linkLost)
+            return;
+
+        _linkLost = true;
+
+        StopDecodeTimer();
+        StopComputerTone();
+
+        PostUi(() =>
+        {
+            SetConnectionUi(true, _connectedPort);
+            AddLog($"设备失联：已 {(silentMs / 1000.0):0.0} 秒没有心跳回应。");
+        });
+    }
+
+    /// <summary>设备重新回 PONG，恢复到“已连接”。</summary>
+    private void RecoverLinkIfNeeded()
+    {
+        if (!_linkLost)
+            return;
+
+        _linkLost = false;
+
+        PostUi(() =>
+        {
+            SetConnectionUi(true, _connectedPort);
+            StartDecodeTimer();
+            AddLog("设备恢复响应，已重新连接。");
+        });
     }
 
     private void StopHeartbeat()
@@ -944,30 +1009,60 @@ public partial class MainWindow : Window
 
     private void SetConnectionUi(bool connected, string? portName)
     {
-        ConnectionDot.SetResourceReference(Shape.FillProperty, connected ? "Accent" : "Ink3");
+        if (connected)
+        {
+            _connectedPort = portName ?? _connectedPort;
+        }
+        else
+        {
+            _connectedPort = null;
+            _linkLost = false;
+        }
 
-        ConnectionText.Text = connected
-            ? $"已连接 · {portName}"
-            : "未连接";
+        bool lost = connected && _linkLost;
+
+        // 三种状态：未连接（灰点）/ 已连接（橙点）/ 失联（橙色空心环）
+        if (lost)
+        {
+            ConnectionDot.SetResourceReference(Shape.FillProperty, "Paper");
+            ConnectionDot.SetResourceReference(Shape.StrokeProperty, "Accent");
+            ConnectionDot.StrokeThickness = 1.8;
+        }
+        else
+        {
+            ConnectionDot.SetResourceReference(Shape.FillProperty, connected ? "Accent" : "Ink3");
+            ConnectionDot.StrokeThickness = 0;
+        }
+
+        ConnectionText.Text = lost
+            ? $"失联 · {portName}"
+            : connected
+                ? $"已连接 · {portName}"
+                : "未连接";
 
         ConnectButton.Content = connected ? "断开连接" : "连接设备";
 
-        DeviceInfoText.Text = connected
-            ? "设备已就绪。点划时序由设备生成，电脑只负责发声与抄收。"
-            : "请选择 ESP32-S3 的 USB OTG 端口。";
+        DeviceInfoText.Text = lost
+            ? "设备没有回应心跳，请断开后重新连接。"
+            : connected
+                ? "设备已就绪。点划时序由设备生成，电脑只负责发声与抄收。"
+                : "请选择 ESP32-S3 的 USB OTG 端口。";
+
+        // 失联时设备不可控，控制项一律禁用；但端口仍占着，所以不能去改端口。
+        bool controllable = connected && !lost;
 
         PortCombo.IsEnabled = !connected;
         RefreshButton.IsEnabled = !connected;
 
-        OutputBuzzerRadio.IsEnabled = connected;
-        OutputPcRadio.IsEnabled = connected;
-        OutputBothRadio.IsEnabled = connected;
+        OutputBuzzerRadio.IsEnabled = controllable;
+        OutputPcRadio.IsEnabled = controllable;
+        OutputBothRadio.IsEnabled = controllable;
 
-        ModeStraightRadio.IsEnabled = connected;
-        ModeIambicARadio.IsEnabled = connected;
-        ModeIambicBRadio.IsEnabled = connected;
+        ModeStraightRadio.IsEnabled = controllable;
+        ModeIambicARadio.IsEnabled = controllable;
+        ModeIambicBRadio.IsEnabled = controllable;
 
-        WpmSlider.IsEnabled = connected;
+        WpmSlider.IsEnabled = controllable;
     }
 
     // ---------- 声音输出 ----------

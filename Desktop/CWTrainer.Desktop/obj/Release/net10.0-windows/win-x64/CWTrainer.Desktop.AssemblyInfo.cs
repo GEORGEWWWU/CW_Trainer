@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CWT")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("2.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.1.0+90eb46a40665455f7132ad942206bb36207ba5e2")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.1.0+a8a5c58774d65e700f4f21b2a4d1dc949bc7eccb")]
 [assembly: System.Reflection.AssemblyProductAttribute("CWT")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CWT")]
 [assembly: System.Reflection.AssemblyVersionAttribute("2.1.0.0")]

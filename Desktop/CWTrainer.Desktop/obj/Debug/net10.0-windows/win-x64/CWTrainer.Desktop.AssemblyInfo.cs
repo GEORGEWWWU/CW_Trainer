@@ -10,12 +10,12 @@
 using System;
 using System.Reflection;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("CWTrainer.Desktop")]
+[assembly: System.Reflection.AssemblyCompanyAttribute("CWT")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("2.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.1.0+d73e5951d5edd0c29ba6c2ad2ba7dadeec5ce3c1")]
-[assembly: System.Reflection.AssemblyProductAttribute("CWTrainer.Desktop")]
-[assembly: System.Reflection.AssemblyTitleAttribute("CWTrainer.Desktop")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.1.0+a8a5c58774d65e700f4f21b2a4d1dc949bc7eccb")]
+[assembly: System.Reflection.AssemblyProductAttribute("CWT")]
+[assembly: System.Reflection.AssemblyTitleAttribute("CWT")]
 [assembly: System.Reflection.AssemblyVersionAttribute("2.1.0.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
