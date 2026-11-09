@@ -35,7 +35,7 @@ V2 的职责划分：
 
 文件：
 
-`Firmware/CW_Trainer_V2/CW_Trainer_V2.ino`
+`Firmware/CW_Trainer_V3/CW_Trainer_V3.ino`
 
 使用你已经成功安装的：
 

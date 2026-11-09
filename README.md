@@ -96,7 +96,7 @@
 
 ### 1. 烧录固件
 
-用 Arduino IDE 打开 `Firmware/CW_Trainer_V2/CW_Trainer_V2.ino`。
+用 Arduino IDE 打开 `Firmware/CW_Trainer_V3/CW_Trainer_V3.ino`。
 
 - Arduino IDE 2.3.6
 - `esp32 by Espressif Systems` **2.0.17-cn**（中国区镜像索引）
@@ -194,8 +194,8 @@ dotnet publish -c Release -r win-x64 --self-contained false     # 单文件
 
 ```text
 CW_Trainer/
-├─ Firmware/CW_Trainer_V2/
-│  └─ CW_Trainer_V2.ino      # ESP32-S3 固件：读桨、点划时序、协议
+├─ Firmware/CW_Trainer_V3/
+│  └─ CW_Trainer_V3.ino      # ESP32-S3 固件：读桨、点划时序、协议、自动拍发
 ├─ Desktop/CWTrainer.Desktop/
 │  ├─ Themes/                # 亮色 / 暗色两套色板（键完全一致）
 │  ├─ App.xaml               # 字体、间距、全部自绘控件模板
@@ -210,7 +210,9 @@ CW_Trainer/
 ├─ dist/                     # 发布产物（不纳入版本管理）
 ├─ README_中文使用说明.md     # 详细操作手册
 ├─ CW_Trainer_V1_开发与烧录记录.md
-└─ CW_Trainer_V2_开发历程与故障记录.md
+├─ CW_Trainer_V2_开发历程与故障记录.md
+├─ CW_Trainer_V3_规划.md
+└─ CW_Trainer_V2.ino         # 归档：V2.2.0 固件最后一版，可回退/对照
 ```
 
 ## 设计规范
@@ -232,7 +234,7 @@ CW_Trainer/
 
 ## 已知限制
 
-1. **必须烧录 V3.0 固件**（`Firmware/CW_Trainer_V2/CW_Trainer_V2.ino`）。V2.0 的输出模式是一次性锁存，关闭或强杀软件后会永久静音、串口还可能被写阻塞拖死只能按 RST；V2.1 起改用主机租约，V2.2 加上 WPM/模式的 NVS 持久化，V3.0 加上文字发送。烧录前建议先按一次 RST。
+1. **必须烧录 V3.0 固件**（`Firmware/CW_Trainer_V3/CW_Trainer_V3.ino`）。V2.0 的输出模式是一次性锁存，关闭或强杀软件后会永久静音、串口还可能被写阻塞拖死只能按 RST；V2.1 起改用主机租约，V2.2 加上 WPM/模式的 NVS 持久化，V3.0 加上文字发送。烧录前建议先按一次 RST。
 2. **Iambic A/B 是联调原型**，挤压/释放的标准行为还没有用测试矩阵完整验证。
 3. **发送需要 V3.0 固件**；旧固件收到 `SEND,...` 会回 `ERROR,BAD_COMMAND`。
 4. **WPM 与模式需要 V2.2 固件才持久化**。烧了 V2.2 之后设备自己记住速度，软件连上会读取并同步界面，不会反向下发覆盖。

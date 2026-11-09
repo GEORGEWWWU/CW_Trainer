@@ -329,7 +329,8 @@ NVS（本次，已完成）
 
 1. **固件标题还写着 V2** —— 固件已升到 3.0.0，文件头和 `READY` 版本号却一个写 V2 一个写 3.0.0，
    容易让人怀疑到底改没改。已把文件头改成 `CW TRAINER V3`，`READY` 早在 9.2 已升到 3.0.0。
-   （目录名 `Firmware/CW_Trainer_V2/` 保持不变，避免打乱 Arduino 的 sketch 路径与烧录习惯。）
+   随后按规范把整个 sketch 一并改名：`Firmware/CW_Trainer_V3/CW_Trainer_V3.ino`，
+   并把 V2.2.0 的最后一版源码归档到仓库根目录 `CW_Trainer_V2.ino`。
 2. **发送框**：
    - 占位符原来默认拉伸居中，比光标低了半行；改为 `VerticalAlignment=Top`，
      再按实测把上边距定到 17（占位符与真实文本的首行都在 y=518，逐像素对齐过）。

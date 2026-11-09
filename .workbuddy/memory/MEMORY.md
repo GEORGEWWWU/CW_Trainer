@@ -7,6 +7,8 @@
   不要只在 GitHub 上留构建结果，不要留旧 exe。
 - 发布产物名固定为 **`CWT.exe`**（csproj 里 `AssemblyName=CWT`）。
 - **固件 `Firmware/` 未经用户明确同意不得修改**，硬件部分不动。
+- 当前固件：`Firmware/CW_Trainer_V3/CW_Trainer_V3.ino`（Arduino 要求目录名与 .ino 同名，改名要成对改）。
+- 根目录 `CW_Trainer_V2.ino` 是 V2.2.0 的**冻结归档**，不要修改，只作回退/对照用。
 - 用户已有实机开发板（ESP32-S3，串口 COM7）。不要在 PC 上做固件仿真，直接上实板。
   测试串口时进程必须走正常关闭流程，硬杀进程会把 USB CDC 端点拖死，只能按 RST 恢复。
 
