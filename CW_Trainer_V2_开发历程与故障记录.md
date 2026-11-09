@@ -537,3 +537,68 @@ V2.1 的改法是把"请求的输出模式"和"上位机是否还活着"解耦�
 - 发布版 `dist/CWT.exe` 通过界面自检 6 项。
 - 串口侧的完整闭环需要用户烧录 V2.1 固件后实测（本轮测试期间 COM7 被 V2.0 固件再次拖死，
   与本轮改动无关，是 15.1 描述的同一故障）。
+
+---
+
+## 16. V2 收尾：主题、设置、电码表与窗口修复（2026-11-09）
+
+§14、§15 之后又做了四件事，都是界面层，协议未变。这一节把过程与踩到的坑补齐，V2 到此收尾。
+
+### 16.1 深浅色主题
+
+- 两套色板放在 `Themes/Light.xaml` 与 `Themes/Dark.xaml`，键完全一致：`Ink` 主文字、`Paper` 卡片、
+  `Surface` 画布/凹槽、`OnInk` 墨黑底上的字（暗色下反过来是深色，所以主按钮在暗色里是白底黑字）。
+- 启动读注册表 `AppsUseLightTheme`；同时挂 `WM_SETTINGCHANGE`（`ImmersiveColorSet`）与
+  `SystemEvents.UserPreferenceChanged` 两条路，系统一改立刻跟随。
+- 设置里可以锁定「跟随系统 / 浅色 / 深色」三选一。做成三选一而不是开关，是因为开关表达不了"跟系统走"。
+
+### 16.2 设置面板与偏好持久化
+
+- 顶栏齿轮打开浮层，`AppSettings` 存 `%AppData%\CWTrainer\settings.json`：`Theme` / `ToneHz` / `Volume`。
+- 音调、音量改动后 600 ms 防抖落盘，避免拖滑块时疯狂写文件。
+
+### 16.3 摩斯电码表
+
+- 抄收卡片右上角小入口，54 条（字母、数字、标点），5 列网格；点一行按当前 WPM 播一遍。
+- 字符表从"字典"改成有序 `MorseEntry[]`，字典由它生成，保证显示顺序与解码表不会分叉。
+
+### 16.4 窗口：白边、圆角、动画
+
+三个问题串在一起，根因都是窗口样式：
+
+1. **顶部一条白边**：`WindowStyle=None` 仍会留一圈由 DWM 绘制的非客户区。
+   实测窗口设 1200×800，客户区只有 **1186×786**，四周各约 7px。用
+   `WindowChrome(CaptionHeight=0, ResizeBorderThickness=6, GlassFrameThickness=0)` 收掉后客户区正好 1200×800。
+2. **圆角和最小化/最大化动画丢失**：`WindowStyle=None` 会让窗口退化成无边框 popup，DWM 不再接管。
+   改回 `SingleBorderWindow` + 保留 `WindowChrome`，再显式调用
+   `DwmSetWindowAttribute(hwnd, 33 /*CORNER_PREFERENCE*/, 2 /*ROUND*/)` 要一次圆角。
+3. **最大化盖住任务栏**：有原生边框后不再需要自设 `MaxHeight` 的 hack，删掉即可，实测最大化高度 1048 / 屏幕 1080。
+
+### 16.5 产物与自动化
+
+- `AssemblyName=CWT`，发布产物固定 `CWT.exe`（框架依赖单文件，约 390 KB）。
+- `.github/workflows/build.yml`：推 `main` 出 Actions artifact；打 `v*` 标签自动建 Release 并挂 `CWT.exe`。
+- 本地始终保留一份 `dist/CWT.exe` 供随时测试（该目录不进版本库）。
+
+### 16.6 这一轮踩到的坑（都值得记住）
+
+| 坑 | 现象 | 原因与修法 |
+|---|---|---|
+| `StaticResource` 引用颜色 | 运行时切主题只有一半界面变 | 必须用 `DynamicResource`；`StaticResource` 只在加载时解析一次 |
+| `ListBox` 没设 `Foreground` | 暗色下日志文字是黑的，几乎看不见 | 控件默认前景是黑色，需在 `ListBox` / `ListBoxItem` 样式里显式给令牌 |
+| 枚举名 `ThemeMode` | 编译报错 | .NET 10 WPF 新增了 `Application.ThemeMode`，撞名，改成 `AppTheme` |
+| `WAVEOUTCAPS` 字段顺序 | 设备名少首字母、整体左移 | `szPname` 在 `dwSupport` **之前**；按头文件直觉写会错 4 字节 |
+| XML 注释里的 `--` | XAML 编译失败 | XML 注释不允许连续 `--`，改用 `=` 或拆开写 |
+| 分组控件禁用态 | 选中的黑块变成一块灰 | 加 `MultiTrigger`（IsChecked + IsEnabled=False）改用凹槽色 |
+| 提示文案过长 | 换行把左列撑高，键控卡片被挤出可视区 | 固定版面里所有说明文字必须按单行设计，超长就压缩 |
+| 测试工具 `proc.Kill()` | ESP32 的 COM 口变砖，只能 RST | 硬杀进程会让 USB CDC 端点悬空；测试必须走 `WindowPattern.Close()` 正常关闭 |
+| 占位符与真实值 | 端口未选中时下拉框一片空白 | 用 `DataTrigger` 绑 `SelectedItem == null` 显示"选择端口" |
+
+### 16.7 V2 结论
+
+功能、界面、发布三条线都已完成：手键输入可用、解码准确、三种输出可切换、深浅色跟随、
+电码表可听、偏好可记、单文件可分发、CI 可自动出包。
+
+遗留并移交 V3 的项目只有三项，且都不是 V2 的缺陷：
+**发送方向缺失、Iambic A/B 未经标准用例验证、WPM/模式不持久化**。
+详见 `CW_Trainer_V3_规划.md`。

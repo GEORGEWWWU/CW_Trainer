@@ -224,13 +224,17 @@ CW_Trainer/
 
 ## 路线图
 
-- [ ] 电脑输入文字 → 设备自动拍发（发送方向）
-- [ ] QSO 记录与训练统计
+V3 的完整方案（协议、验收标准、依赖关系、推荐顺序）见 [CW_Trainer_V3_规划.md](CW_Trainer_V3_规划.md)。
+
+- [ ] Iambic A/B 标准行为测试矩阵（只测，优先）
 - [ ] 设备端用 NVS 保存 WPM / 模式
-- [ ] Iambic A/B 标准行为测试矩阵
+- [ ] 电脑输入文字 → 设备自动拍发（发送方向，需改固件）
+- [ ] QSO 记录与训练统计（依赖发送方向）
+- [ ] 抽 netstandard 库，为安卓移植做准备
 
 ## 相关文档
 
 - [README_中文使用说明.md](README_中文使用说明.md) —— 详细操作与排错
 - [CW_Trainer_V1_开发与烧录记录.md](CW_Trainer_V1_开发与烧录记录.md) —— 硬件、环境、烧录
 - [CW_Trainer_V2_开发历程与故障记录.md](CW_Trainer_V2_开发历程与故障记录.md) —— V2 架构、故障分析与修复经过
+- [CW_Trainer_V3_规划.md](CW_Trainer_V3_规划.md) —— 发送方向、Iambic 测试矩阵、NVS、统计与安卓的技术方案
