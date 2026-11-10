@@ -79,8 +79,6 @@ public sealed class MorseDecoder
     /// <summary>单词间隔阈值（单位）。标准单词间隔是 7 单位。</summary>
     public double WordGapUnits { get; set; } = 6.0;
 
-    public int MaxTextLength { get; set; } = 2000;
-
     private readonly StringBuilder _symbols = new();
     private readonly StringBuilder _text = new();
     private readonly List<MorseCommit> _commits = new();
@@ -199,7 +197,6 @@ public sealed class MorseDecoder
 
         char symbol = MorseTable.Decode(code);
         _text.Append(symbol);
-        TrimText();
 
         _commits.Add(new MorseCommit(symbol, code, false));
         _anyOutput = true;
@@ -212,16 +209,8 @@ public sealed class MorseDecoder
             return;
 
         _text.Append(' ');
-        TrimText();
 
         _commits.Add(new MorseCommit(' ', string.Empty, true));
         _lastWasSpace = true;
-    }
-
-    private void TrimText()
-    {
-        int overflow = _text.Length - MaxTextLength;
-        if (overflow > 0)
-            _text.Remove(0, overflow);
     }
 }

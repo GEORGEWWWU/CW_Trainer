@@ -34,5 +34,6 @@
 
     <SolidColorBrush x:Key="Scrim"           Color="#59000000"/>
     <SolidColorBrush x:Key="PopupBorder"     Color="#E4E4E1"/>
+    <SolidColorBrush x:Key="DecodeBadgeTint" Color="#D9F4F4F3"/>
 
 </ResourceDictionary>

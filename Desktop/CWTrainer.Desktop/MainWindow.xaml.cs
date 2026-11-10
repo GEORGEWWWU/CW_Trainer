@@ -99,6 +99,7 @@ public partial class MainWindow : Window
     private long _straightMarkStartMs = -1;
 
     private int _decodeUiPending;
+    private bool _followDecodedText = true;
 
     private readonly AudioOutput _audio;
     private bool _suppressAudioUi;
@@ -1049,19 +1050,22 @@ public partial class MainWindow : Window
         EmptyHint.Visibility = decoded.Length == 0
             ? Visibility.Visible
             : Visibility.Collapsed;
+        if (decoded.Length == 0)
+            _followDecodedText = true;
 
-        if (pending.Length == 0)
-        {
-            // 空白由中间的提示承担，这里不要重复文案
-            PreviewText.Text = string.Empty;
-            PreviewText.SetResourceReference(TextBlock.ForegroundProperty, "Ink3");
-            return;
-        }
-
-        PreviewText.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
         PreviewText.Text = string.Join(
             " ",
             pending.Select(c => c == '.' ? "·" : "—"));
+    }
+
+    private void DecodedScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (DecodedScroll.ScrollableHeight - e.VerticalOffset < 1)
+            _followDecodedText = true;
+        else if (e.VerticalChange < 0)
+            _followDecodedText = false;
+        else if (_followDecodedText && (e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0))
+            DecodedScroll.ScrollToBottom();
     }
 
     // ---------- 断开与安全交接 ----------
@@ -1818,8 +1822,8 @@ public partial class MainWindow : Window
         }
 
         PreviewText.Text = string.Empty;
-        PreviewText.SetResourceReference(TextBlock.ForegroundProperty, "Ink3");
         DecodedText.Text = "";
+        _followDecodedText = true;
         EmptyHint.Visibility = Visibility.Visible;
         KeyStateText.Text = "空闲";
         KeyDot.SetResourceReference(Shape.FillProperty, "Ink3");
