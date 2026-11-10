@@ -94,6 +94,9 @@ public partial class App : Application
             merged[0] = theme;
         else
             merged.Add(theme);
+
+        if (Current.MainWindow is MainWindow window)
+            window.RefreshWindowBackdrop(dark);
     }
 
     /// <summary>

@@ -12,6 +12,8 @@
     <SolidColorBrush x:Key="Ink3"            Color="#9C9CA0"/>
 
     <SolidColorBrush x:Key="Paper"           Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="CardSurface"     Color="#AFFFFFFF"/>
+    <SolidColorBrush x:Key="WindowAcrylicTint" Color="#38FFFFFF"/>
     <SolidColorBrush x:Key="Surface"         Color="#F4F4F3"/>
     <SolidColorBrush x:Key="SurfaceSunken"   Color="#E9E9E6"/>
     <SolidColorBrush x:Key="Hairline"        Color="#E4E4E1"/>

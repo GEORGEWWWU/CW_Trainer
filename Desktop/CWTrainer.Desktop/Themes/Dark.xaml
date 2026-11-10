@@ -5,8 +5,8 @@
         暗色主题：键必须与 Themes/Light.xaml 完全一致。
         语义保持不变：
           Ink   = 主文字（暗色下是近白）
-          Paper = 卡片底色（暗色下是深灰）
-          Surface = 画布 / 控件底的“凹槽”色
+          Paper = 弹层底色，CardSurface = 半透明卡片底色
+          Surface = 纯色窗口背景 / 控件底的“凹槽”色
           OnInk = 墨黑底上的文字（暗色下是深色，因为 Ink 变浅了）
     -->
 
@@ -15,6 +15,8 @@
     <SolidColorBrush x:Key="Ink3"            Color="#6E6E74"/>
 
     <SolidColorBrush x:Key="Paper"           Color="#171718"/>
+    <SolidColorBrush x:Key="CardSurface"     Color="#AB171718"/>
+    <SolidColorBrush x:Key="WindowAcrylicTint" Color="#A6101012"/>
     <SolidColorBrush x:Key="Surface"         Color="#0D0D0E"/>
     <SolidColorBrush x:Key="SurfaceSunken"   Color="#262628"/>
     <SolidColorBrush x:Key="Hairline"        Color="#2C2C2F"/>

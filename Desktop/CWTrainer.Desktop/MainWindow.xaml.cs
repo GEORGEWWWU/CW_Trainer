@@ -188,16 +188,13 @@ public partial class MainWindow : Window
         IntPtr handle = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(handle)?.AddHook(WndProc);
 
-        // 用了 WindowChrome 之后 DWM 不再自动给圆角，这里显式要求一次。
-        // Win11 22000+ 有效；Win10 返回错误码，忽略即可。
-        try
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
             int round = DwmWindowCornerRound;
             DwmSetWindowAttribute(handle, DwmWindowCornerPreference, ref round, sizeof(int));
         }
-        catch
-        {
-        }
+
+        RefreshWindowBackdrop(App.IsDarkTheme);
     }
 
     private const int DwmWindowCornerPreference = 33;   // DWMWA_WINDOW_CORNER_PREFERENCE
@@ -214,6 +211,7 @@ public partial class MainWindow : Window
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         const int WmSettingChange = 0x001A;
+        const int WmDwmCompositionChanged = 0x031E;
 
         if (msg == WmSettingChange)
         {
@@ -222,6 +220,9 @@ public partial class MainWindow : Window
             if (string.IsNullOrEmpty(area) || area == "ImmersiveColorSet")
                 App.RefreshTheme();
         }
+
+        if (msg is WmSettingChange or WmDwmCompositionChanged)
+            Dispatcher.BeginInvoke(new Action(() => RefreshWindowBackdrop(App.IsDarkTheme)));
 
         return IntPtr.Zero;
     }
@@ -251,7 +252,6 @@ public partial class MainWindow : Window
     // ---------- 全屏 ----------
 
     private bool _isFullscreen;
-    private WindowStyle _preFullscreenStyle;
     private ResizeMode _preFullscreenResize;
     private WindowState _preFullscreenState;
     private Rect _preFullscreenBounds;
@@ -272,7 +272,6 @@ public partial class MainWindow : Window
         if (_isFullscreen)
             return;
 
-        _preFullscreenStyle = WindowStyle;
         _preFullscreenResize = ResizeMode;
         _preFullscreenState = WindowState;
         _preFullscreenBounds = new Rect(Left, Top, Width, Height);
@@ -282,7 +281,6 @@ public partial class MainWindow : Window
         // 用 "Normal + 显式铺满整个显示器" 而不是 Maximized：
         // 无边框窗口最大化只会铺到工作区，任务栏那条会留成一块黑边。
         WindowState = WindowState.Normal;
-        WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         ApplyWindowChrome(resizable: false);
 
@@ -307,7 +305,6 @@ public partial class MainWindow : Window
         _isFullscreen = false;
 
         WindowState = WindowState.Normal;
-        WindowStyle = _preFullscreenStyle;
         ResizeMode = _preFullscreenResize;
         ApplyWindowChrome(resizable: true);
 
@@ -371,18 +368,7 @@ public partial class MainWindow : Window
     /// 全屏时把 WindowChrome 的缩放边收掉，否则内容会被 6px 的隐形边挤一圈。
     /// </summary>
     private void ApplyWindowChrome(bool resizable)
-    {
-        var chrome = new WindowChrome
-        {
-            CaptionHeight = 0,
-            ResizeBorderThickness = new Thickness(resizable ? 6 : 0),
-            GlassFrameThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(0),
-            UseAeroCaptionButtons = false
-        };
-
-        WindowChrome.SetWindowChrome(this, chrome);
-    }
+        => WindowChrome.GetWindowChrome(this).ResizeBorderThickness = new Thickness(resizable ? 6 : 0);
 
     private void SetFullscreenIcon(bool fullscreen)
     {

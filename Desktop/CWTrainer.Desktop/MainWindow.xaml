@@ -7,7 +7,7 @@
         Width="1200" Height="860"
         MinWidth="900" MinHeight="650"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="SingleBorderWindow"
+        WindowStyle="None"
         ResizeMode="CanResize"
         Background="{DynamicResource Surface}"
         Foreground="{DynamicResource Ink}"
@@ -19,9 +19,8 @@
         KeyDown="Window_KeyDown">
 
     <!--
-        无边框窗口默认会留一圈由 DWM 绘制的非客户区（顶部那条白边就是它）。
-        用 WindowChrome 把非客户区收掉：CaptionHeight=0 表示自己处理拖动，
-        ResizeBorderThickness 保留边缘拖拽缩放。
+        关闭系统标题栏，让延展的 DWM 亚克力只显示一套标题栏按钮。
+        WindowChrome 保留窗口边缘的拖拽缩放。
     -->
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0"
@@ -38,7 +37,7 @@
     -->
     <Border BorderBrush="{DynamicResource Hairline}" BorderThickness="1">
     <Viewbox Stretch="Uniform" StretchDirection="Both">
-        <Grid Width="1200" Height="860" Background="{DynamicResource Surface}">
+        <Grid Width="1200" Height="860" Background="Transparent">
 
             <Grid.RowDefinitions>
                 <RowDefinition Height="56"/>
@@ -129,7 +128,7 @@
                     </Button>
 
                     <!-- 连接状态 -->
-                    <Border Background="{DynamicResource Paper}"
+                    <Border Background="{DynamicResource CardSurface}"
                             CornerRadius="16"
                             Padding="12,7"
                             Margin="0,0,10,0">
@@ -207,7 +206,7 @@
 
                     <!-- 设备 -->
                     <Border Grid.Row="0"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="20">
                         <StackPanel>
@@ -269,7 +268,7 @@
 
                     <!-- 声音输出 -->
                     <Border Grid.Row="2"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="20">
                         <StackPanel>
@@ -361,7 +360,7 @@
 
                     <!-- 键控 -->
                     <Border Grid.Row="4"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="20">
                         <Grid>
@@ -443,7 +442,7 @@
 
                     <!-- 实时抄收 -->
                     <Border Grid.Row="0"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="24,20,24,12">
                         <Grid>
@@ -504,7 +503,7 @@
                             <!-- 解码文本 -->
                             <Grid Grid.Row="1" Margin="0,10,0,0">
                                 <ScrollViewer x:Name="DecodedScroll"
-                                              Background="{DynamicResource Paper}"
+                                              Background="Transparent"
                                               VerticalScrollBarVisibility="Hidden"
                                               HorizontalScrollBarVisibility="Disabled"
                                               ScrollChanged="DecodedScroll_ScrollChanged">
@@ -594,7 +593,7 @@
 
                     <!-- 发送 -->
                     <Border Grid.Row="2"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="20,16,20,18">
                         <Grid>
@@ -691,7 +690,7 @@
 
                     <!-- 通信记录 -->
                     <Border Grid.Row="4"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="20,18,20,14">
                         <Grid>
@@ -733,7 +732,7 @@
 
                     <!-- 接收频率 -->
                     <Border Grid.Row="0"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="24,16,24,16">
                         <Grid>
@@ -927,7 +926,7 @@
 
                     <!-- S 表 -->
                     <Border Grid.Row="2"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="24,14,24,14">
                         <Grid>
@@ -996,7 +995,7 @@
 
                     <!-- 频谱 + 瀑布 -->
                     <Border Grid.Row="4"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="20,14,20,10">
                         <Grid>
@@ -1073,7 +1072,7 @@
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="16,14,14,16">
                         <StackPanel>
@@ -1083,7 +1082,7 @@
                     </Border>
 
                     <Border Grid.Row="2"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="16,14,14,16">
                         <StackPanel>
@@ -1125,7 +1124,7 @@
                     </Border>
 
                     <Border Grid.Row="4"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="16,14,14,16">
                         <StackPanel>
@@ -1177,7 +1176,7 @@
 
                     <!-- 波段活动 -->
                     <Border Grid.Row="6"
-                            Background="{DynamicResource Paper}"
+                            Background="{DynamicResource CardSurface}"
                             CornerRadius="20"
                             Padding="16,14,14,14">
                         <Grid>
